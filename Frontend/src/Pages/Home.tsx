@@ -1,0 +1,1601 @@
+import React, { useState, useEffect } from "react";
+import {
+  Loader2,
+  PencilLine,
+  Globe,
+  Code,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  Calendar,
+  Clock,
+  LogOut,
+} from "lucide-react";
+import { Switch } from "../component/ui/Switch"; // Adjust the path if necessary
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import { RootState } from "../App/store";
+import {
+  FilePlus2,
+  UserRound,
+  Trash2,
+  FolderGit2,
+  Search,
+  Plus,
+  X,
+} from "lucide-react";
+import { Card, CardContent } from "../component/ui/card";
+import { Button } from "../component/ui/Button";
+import { Input } from "../component/ui/Input";
+import bg from "../assets/juyt_6.jpg";
+import Info from "../component/ui/Info";
+import { IoInformationCircleOutline } from "react-icons/io5";
+
+interface User {
+  id: string;
+  email: string;
+}
+
+interface Collaborator extends User {
+  accessLevel: "admin" | "readwrite" | "readonly";
+  isCreator?: boolean;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  creator: string;
+  language: string;
+  description?: string;
+  collaborators: Collaborator[];
+  fileTree: FileTree;
+  version: number;
+  scheduledTime: string | null;
+  expiryTime: string | null;
+  adminOnlyEdit: boolean;
+  accessLevel: "admin" | "readwrite" | "readonly";
+}
+
+interface FileTree {
+  [key: string]: any;
+}
+
+const Home = () => {
+  const { user } = useSelector((state: RootState) => state.auth);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState<boolean>(false);
+  const [projectName, setProjectName] = useState<string>("");
+  const [renameProjectId, setRenameProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [activeCard, setActiveCard] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
+  const [selectedLanguage, setSelectedLanguage] =
+    useState<string>("JavaScript");
+  const [description, setDescription] = useState<string>("");
+  const [expandedDescription, setExpandedDescription] = useState<string | null>(
+    null
+  );
+  const [activeTab, setActiveTab] = useState<"all" | "scheduled">("all");
+  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(false);
+  const [expiryEnabled, setExpiryEnabled] = useState<boolean>(false);
+  const [scheduleDate, setScheduleDate] = useState<string>("");
+  const [scheduleTime, setScheduleTime] = useState<string>("");
+  const [expiryDate, setExpiryDate] = useState<string>("");
+  const [expiryTime, setExpiryTime] = useState<string>("");
+  const [adminOnlyEdit, setAdminOnlyEdit] = useState<boolean>(false);
+  const [countdowns, setCountdowns] = useState<{ [key: string]: string }>({});
+  // const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+
+  const [editProjectName, setEditProjectName] = useState<string>("");
+  const [editDescription, setEditDescription] = useState<string>("");
+  const [editLanguage, setEditLanguage] = useState<string>("JavaScript");
+  const [editScheduleEnabled, setEditScheduleEnabled] =
+    useState<boolean>(false);
+  const [editScheduleDate, setEditScheduleDate] = useState<string>("");
+  const [editScheduleTime, setEditScheduleTime] = useState<string>("");
+  const [editExpiryEnabled, setEditExpiryEnabled] = useState<boolean>(false);
+  const [editExpiryDate, setEditExpiryDate] = useState<string>("");
+  const [editExpiryTime, setEditExpiryTime] = useState<string>("");
+  const [editAdminOnlyEdit, setEditAdminOnlyEdit] = useState<boolean>(false);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  // const isCollaborator = projects?.some(p => p.collaborators.some(c => c.id === user?.id));
+  // const canLeaveProject = isCollaborator && projects?.some(project => project.accessLevel !== 'admin');
+
+  const navigate = useNavigate();
+
+  const fetchProjects = () => {
+    setIsLoading(true);
+    axios
+      .get<{ projects: Project[] }>(
+        `${import.meta.env.VITE_API_URL}/project/all`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      )
+      .then((res) => {
+        console.log(res.data.projects);
+        setProjects(res.data.projects);
+        setIsLoading(false);
+      })
+      .catch((error) => {
+        console.error("Failed to fetch projects:", error);
+        setIsLoading(false);
+      });
+  };
+
+  const languages = [
+    "C",
+    "Clojure",
+    "C#",
+    "Java",
+    "Kotlin",
+    "Objective-C",
+    "PHP",
+    "OCaml",
+    "R",
+    "Shift",
+    "Shell",
+    "Java",
+    "C++",
+    "Ruby",
+    "Go",
+    "TypeScript",
+    "Node",
+  ];
+
+  const getLanguageColor = (language: string) => {
+    const colorMap: Record<string, { bg: string; text: string }> = {
+      JavaScript: { bg: "bg-yellow-50", text: "text-yellow-700" },
+      TypeScript: { bg: "bg-blue-50", text: "text-blue-700" },
+      Python: { bg: "bg-green-50", text: "text-green-700" },
+      Java: { bg: "bg-orange-50", text: "text-orange-700" },
+      "C++": { bg: "bg-purple-50", text: "text-purple-700" },
+      Ruby: { bg: "bg-red-50", text: "text-red-700" },
+      Go: { bg: "bg-cyan-50", text: "text-cyan-700" },
+    };
+
+    return colorMap[language] || { bg: "bg-gray-50", text: "text-gray-700" };
+  };
+
+  useEffect(() => {
+    fetchProjects();
+  }, []);
+
+  useEffect(() => {
+    if (!projects) return;
+
+    // Initialize countdowns
+    updateCountdowns();
+
+    // Set up interval to update countdowns
+    const interval = setInterval(updateCountdowns, 1000);
+
+    return () => clearInterval(interval);
+  }, [projects]);
+
+  const updateCountdowns = () => {
+    if (!projects) return;
+
+    const now = new Date();
+    const newCountdowns: { [key: string]: string } = {};
+
+    projects.forEach((project) => {
+      if (project.scheduledTime && new Date(project.scheduledTime) > now) {
+        const timeRemaining = calculateTimeRemaining(project.scheduledTime);
+        newCountdowns[project.id] = timeRemaining;
+      }
+    });
+
+    setCountdowns(newCountdowns);
+  };
+
+  const calculateTimeRemaining = (scheduledTime: string): string => {
+    const now = new Date();
+    const scheduleDate = new Date(scheduledTime);
+    const diffMs = scheduleDate.getTime() - now.getTime();
+
+    // Convert to days, hours, minutes, seconds
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor(
+      (diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+    );
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+    if (days > 0) {
+      return `${days}d ${hours}h ${minutes}m`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else {
+      return `${minutes}m ${seconds}s`;
+    }
+  };
+
+  const createProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Create formatted schedule and expiry times if enabled
+    let scheduledTime = null;
+    if (scheduleEnabled && scheduleDate && scheduleTime) {
+      scheduledTime = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+    }
+
+    let expiryTimeValue = null;
+    if (expiryEnabled && expiryDate && expiryTime) {
+      expiryTimeValue = new Date(`${expiryDate}T${expiryTime}`).toISOString();
+    }
+
+    try {
+      const payload: any = {
+        name: projectName,
+        language: selectedLanguage,
+        description: description,
+      };
+
+      // Add scheduledTime only if it is not null
+      if (scheduledTime) {
+        payload.scheduledTime = scheduledTime;
+      }
+
+      // Add expiryTime only if it is not null
+      if (expiryTimeValue) {
+        payload.expiryTime = expiryTimeValue;
+      }
+
+      // Add adminOnlyEdit only if it is enabled (optional)
+      if (adminOnlyEdit) {
+        payload.adminOnlyEdit = adminOnlyEdit;
+      }
+
+      const res = await axios.post<{ project: Project }>(
+        `${import.meta.env.VITE_API_URL}/project/create`,
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      setProjects((prevProjects) =>
+        prevProjects ? [...prevProjects, res.data.project] : [res.data.project]
+      );
+
+      // Reset form fields
+      setProjectName("");
+      setDescription("");
+      setScheduleEnabled(false);
+      setScheduleDate("");
+      setScheduleTime("");
+      setExpiryEnabled(false);
+      setExpiryDate("");
+      setExpiryTime("");
+      setAdminOnlyEdit(false);
+      setIsModalOpen(false);
+    } catch (error) {
+      setProjectName("");
+      setDescription("");
+      setScheduleEnabled(false);
+      setScheduleDate("");
+      setScheduleTime("");
+      setExpiryEnabled(false);
+      setExpiryDate("");
+      setExpiryTime("");
+      setAdminOnlyEdit(false);
+      setIsModalOpen(false);
+      console.error("Failed to create project:", error);
+    }
+  };
+
+  const updateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!renameProjectId) return;
+
+    // Create formatted schedule and expiry times if enabled
+    let scheduledTime = null;
+    if (editScheduleEnabled && editScheduleDate && editScheduleTime) {
+      scheduledTime = new Date(
+        `${editScheduleDate}T${editScheduleTime}`
+      ).toISOString();
+    }
+
+    let expiryTimeValue = null;
+    if (editExpiryEnabled && editExpiryDate && editExpiryTime) {
+      expiryTimeValue = new Date(
+        `${editExpiryDate}T${editExpiryTime}`
+      ).toISOString();
+    }
+
+    try {
+      const payload: any = {
+        name: editProjectName,
+        language: editLanguage,
+        description: editDescription,
+      };
+
+      // Add scheduledTime only if it is not null
+      if (scheduledTime) {
+        payload.scheduledTime = scheduledTime;
+      }
+
+      // Add expiryTime only if it is not null
+      if (expiryTimeValue) {
+        payload.expiryTime = expiryTimeValue;
+      }
+
+      // Add adminOnlyEdit only if it is enabled (optional)
+      if (adminOnlyEdit) {
+        payload.adminOnlyEdit = adminOnlyEdit;
+      }
+
+      const res = await axios.patch<{ project: Project }>(
+        `${import.meta.env.VITE_API_URL}/project/update/${renameProjectId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+      console.log(res);
+
+      setProjects(
+        (prevProjects) =>
+          prevProjects?.map((project) =>
+            project.id === renameProjectId ? res.data.project : project
+          ) || null
+      );
+
+      // Reset form fields
+      resetEditForm();
+      setIsRenameModalOpen(false);
+    } catch (error) {
+      console.error("Failed to update project:", error);
+    }
+  };
+
+  // Helper function to reset the edit form
+  const resetEditForm = () => {
+    setEditProjectName("");
+    setEditDescription("");
+    setEditLanguage("JavaScript");
+    setEditScheduleEnabled(false);
+    setEditScheduleDate("");
+    setEditScheduleTime("");
+    setEditExpiryEnabled(false);
+    setEditExpiryDate("");
+    setEditExpiryTime("");
+    setEditAdminOnlyEdit(false);
+    setRenameProjectId(null);
+  };
+
+  // Function to populate edit form with project data
+  const openEditModal = (project: Project) => {
+    setRenameProjectId(project.id);
+    setEditProjectName(project.name);
+    setEditDescription(project.description || "");
+    setEditLanguage(project.language);
+
+    // Handle scheduled time
+    if (project.scheduledTime) {
+      setEditScheduleEnabled(true);
+      const scheduledDate = new Date(project.scheduledTime);
+      setEditScheduleDate(scheduledDate.toISOString().split("T")[0]);
+      setEditScheduleTime(scheduledDate.toTimeString().slice(0, 5));
+    } else {
+      setEditScheduleEnabled(false);
+    }
+
+    // Handle expiry time
+    if (project.expiryTime) {
+      setEditExpiryEnabled(true);
+      const expiryDate = new Date(project.expiryTime);
+      setEditExpiryDate(expiryDate.toISOString().split("T")[0]);
+      setEditExpiryTime(expiryDate.toTimeString().slice(0, 5));
+    } else {
+      setEditExpiryEnabled(false);
+    }
+
+    setEditAdminOnlyEdit(project.adminOnlyEdit || false);
+    setIsRenameModalOpen(true);
+  };
+
+  const deleteProject = async () => {
+    if (!projectToDelete || confirmDeleteName !== projectToDelete.name) return;
+
+    setDeleteLoading(projectToDelete.id);
+
+    try {
+      await axios.delete<{ project: Project }>(
+        `${import.meta.env.VITE_API_URL}/project/delete/${projectToDelete.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+      setProjects((prevProjects) =>
+        prevProjects
+          ? prevProjects.filter((project) => project.id !== projectToDelete.id)
+          : null
+      );
+      setIsDeleteModalOpen(false);
+      setProjectToDelete(null);
+      setConfirmDeleteName("");
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+    } finally {
+      setDeleteLoading(null);
+    }
+  };
+
+  const isUserAdmin = (project: Project): boolean => {
+    if (!user) return false;
+    if (project.creator === user.id) return true;
+
+    const userCollaborator = project.collaborators.find(
+      (collab) => collab.id === user.id
+    );
+    return userCollaborator?.accessLevel === "admin";
+  };
+
+  const isCollaborator = (project: Project): boolean => {
+    if (!user) return false;
+    return project.collaborators.some(
+      (collab) => collab.id === user.id && collab.accessLevel !== "admin"
+    );
+  };
+
+  // Handle leave project action
+  const handleLeaveProject = async (project: Project) => {
+    setLeaveLoading(true);
+    try {
+      const response = await axios.put<any>(
+        `${import.meta.env.VITE_API_URL}/project/leave-project`,
+        {
+          projectId: project.id,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      const data = response.data;
+
+      console.log("Successfully left the project:", data);
+      fetchProjects();
+      navigate("/home");
+    } catch (error) {
+      // toast.error(error.message || 'An error occurred while leaving the project');
+    } finally {
+      setLeaveLoading(false);
+      setIsLeaveModalOpen(false);
+    }
+  };
+
+  const toggleDescription = (projectId: string) => {
+    if (expandedDescription === projectId) {
+      setExpandedDescription(null);
+    } else {
+      setExpandedDescription(projectId);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateString: string | null): string => {
+    if (!dateString) return "-- -- --"; // Return '---' when date is null
+    const date = new Date(dateString);
+    return date.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // Check if a project is available to the current user
+  const isProjectAvailable = (project: Project): boolean => {
+    // Admin can always access projects
+    if (isUserAdmin(project)) return true;
+
+    const now = new Date();
+
+    // Check if project has expired (for non-admin users)
+    if (project.expiryTime && new Date(project.expiryTime) < now) {
+      return false;
+    }
+
+    // Check if project is scheduled for future (for non-admin users)
+    if (project.scheduledTime && new Date(project.scheduledTime) > now) {
+      return false;
+    }
+
+    return true;
+  };
+
+  // Get the scheduled projects for tab view - UPDATED to include all users
+  const getScheduledProjects = (): Project[] => {
+    if (!projects) return [];
+
+    return projects.filter((project) => {
+      // Show scheduled projects that haven't started yet
+      return (
+        project.scheduledTime && new Date(project.scheduledTime) > new Date()
+      );
+    });
+  };
+
+  // Filter projects based on search term and current tab - UPDATED for collaborators
+  const filteredProjects = projects?.filter((project) => {
+    const matchesSearch = project.name
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const now = new Date();
+    const isAdmin = isUserAdmin(project);
+
+    // For non-admin users, hide expired projects completely
+    if (!isAdmin && project.expiryTime && new Date(project.expiryTime) < now) {
+      return false;
+    }
+
+    if (activeTab === "scheduled") {
+      // In scheduled tab, show scheduled future projects for all users
+      const isScheduled =
+        project.scheduledTime && new Date(project.scheduledTime) > now;
+      return matchesSearch && isScheduled;
+    } else {
+      // All other projects are visible in the "all" tab
+      return matchesSearch;
+    }
+  });
+
+  // Get the status label and color for a project
+  const getProjectStatus = (
+    project: Project
+  ): { label: string; color: string; icon: React.ReactNode } => {
+    const now = new Date();
+
+    if (project.expiryTime && new Date(project.expiryTime) < now) {
+      return {
+        label: "Expired",
+        color: "text-red-600 bg-red-50",
+        icon: <AlertTriangle size={14} className="text-red-600" />,
+      };
+    }
+
+    if (project.scheduledTime && new Date(project.scheduledTime) > now) {
+      return {
+        label: "Scheduled",
+        color: "text-purple-600 bg-purple-50",
+        icon: <Calendar size={14} className="text-purple-600" />,
+      };
+    }
+
+    return {
+      label: "Active",
+      color: "text-green-600 bg-green-50",
+      icon: <Clock size={14} className="text-green-600" />,
+    };
+  };
+
+  return (
+    <div
+      className="min-h-screen inset-0 bg-contain bg-center object-left left-3"
+      style={{
+        backgroundImage: `url(${bg})`,
+      }}
+    >
+      <div className="relative z-10">
+        <Button
+          onClick={() => setIsModalOpen(true)}
+          className="fixed z-10 lg:z-0 bottom-11 right-11 w-16 h-16 text-white rounded-full bg-blue-600 hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center"
+        >
+          <Plus size={24} />
+        </Button>
+        <main className="max-w-7xl mx-auto p-6">
+          <div className="mb-12 text-center">
+            <h1 className="text-4xl font-bold text-slate-800 mb-4 animate-fade-in">
+              Project Dashboard
+            </h1>
+
+            <div className="relative max-w-xl mx-auto mb-8">
+              <Input
+                type="search"
+                placeholder="Search projects..."
+                className="w-full pl-12 h-12 shadow-sm"
+                value={searchTerm}
+                onChange={(e: {
+                  target: { value: React.SetStateAction<string> };
+                }) => setSearchTerm(e.target.value)}
+              />
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Project Tabs */}
+            <div className="flex justify-center mb-6">
+              <div className="bg-white rounded-lg shadow p-1 flex">
+                <button
+                  onClick={() => setActiveTab("all")}
+                  className={`px-4 py-2 rounded-md transition-colors ${activeTab === "all"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                >
+                  All Projects
+                </button>
+                <button
+                  onClick={() => setActiveTab("scheduled")}
+                  className={`px-4 py-2 rounded-md transition-colors ${activeTab === "scheduled"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                >
+                  Scheduled Projects{" "}
+                  {getScheduledProjects().length > 0 && (
+                    <span className="ml-1 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs">
+                      {getScheduledProjects().length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"}
+          >
+            {isLoading ? (
+              // Skeleton Loading
+              Array.from({ length: 6 }).map((_, index) => (
+                <Card key={index} className="animate-pulse">
+                  <CardContent className="p-6">
+                    <div className="h-6 bg-slate-200 rounded w-3/4 mb-4"></div>
+                    <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : filteredProjects && filteredProjects.length > 0 ? (
+              filteredProjects.map((project) => {
+                const status = getProjectStatus(project);
+                const isAvailable = isProjectAvailable(project);
+                const isAdmin = isUserAdmin(project);
+                const isNonAdminCollaborator = isCollaborator(project);
+                const now = new Date();
+                const isScheduled =
+                  project.scheduledTime &&
+                  new Date(project.scheduledTime) > now;
+                // const isExpired =
+                //   project.expiryTime && new Date(project.expiryTime) < now;
+
+                return (
+                  <Card
+                    key={project.id}
+                    className={`group transition-all duration-500 hover:shadow-2xl
+                                            ${activeCard === project.id
+                        ? "scale-105"
+                        : "hover:scale-102"
+                      }
+                                            ${!isAvailable && !isAdmin
+                        ? "opacity-70"
+                        : ""
+                      }
+                                            transform perspective-1000`}
+                    onMouseEnter={() => setActiveCard(project.id)}
+                    onMouseLeave={() => setActiveCard(null)}
+                  >
+                    <CardContent className="p-6 relative overflow-hidden flex flex-col h-full">
+                      {/* Background Pattern */}
+                      <div className="absolute bottom-1 left-0 w-32 h-32 bg-blue-50 rounded-full -mr-16 -mb-16 transition-transform group-hover:scale-110 duration-700"></div>
+
+                      {/* Status Badge - Top Right */}
+                      <div
+                        className={`absolute top-4 right-4 flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${status.color}`}
+                      >
+                        {status.icon}
+                        {status.label}
+                      </div>
+
+                      <div className="relative flex flex-col h-full overflow-y-scoll">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg group-hover:shadow-xl transition-all duration-300">
+                              <FolderGit2 className="text-white" size={24} />
+                            </div>
+                            <div>
+                              <h2 className="text-xl font-semibold text-slate-800 truncate">
+                                {project.name}
+                              </h2>
+                              {/* <p className="text-sm text-slate-500">
+                                Last updated: Jun 30 2024
+                              </p> */}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Badges Container */}
+                        <div className="grid grid-cols-2 gap-2 mt-4">
+                          {/* Members Badge */}
+                          <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-full text-blue-700 text-sm">
+                            <UserRound size={14} />
+                            {project.collaborators.length} Members
+                          </div>
+
+                          {/* Version Badge */}
+                          <div className="flex items-center justify-center bg-purple-50 px-3 py-1.5 rounded-full text-purple-700 text-sm">
+                            v{project.version}
+                          </div>
+
+                          {/* Language Badge */}
+                          {project.language && (
+                            <div
+                              className={`flex items-center gap-2 ${getLanguageColor(project.language).bg
+                                } px-3 py-1.5 rounded-full ${getLanguageColor(project.language).text
+                                } text-sm`}
+                            >
+                              <Code size={14} />
+                              {project.language}
+                            </div>
+                          )}
+
+                          {/* Access Level Badge */}
+                          <div
+                            className={`flex items-center justify-center ${project.accessLevel === "admin"
+                              ? "bg-green-50 text-green-700"
+                              : project.accessLevel === "readwrite"
+                                ? "bg-indigo-50 text-indigo-700"
+                                : "bg-amber-50 text-amber-700"
+                              } px-3 py-1.5 rounded-full text-sm`}
+                          >
+                            {project.accessLevel === "admin"
+                              ? "Admin"
+                              : project.accessLevel === "readwrite"
+                                ? "Edit"
+                                : "Read Only"}
+                          </div>
+                        </div>
+                        {!isScheduled && (
+                          <div className="mt-4 bg-green-50 p-3 rounded-lg border border-green-100 animate-fade-in">
+                            <div className="flex items-center gap-2 text-green-700 font-medium">
+                              <Clock size={16} />
+                              <span>Currently Available</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Countdown for scheduled projects */}
+                        {isScheduled && countdowns[project.id] && (
+                          <div className="mt-4 bg-purple-50 p-3 rounded-lg border border-purple-100 animate-fade-in">
+                            <div className="flex items-center gap-2 text-purple-700 font-medium">
+                              <Clock size={16} />
+                              <span>
+                                Available in: {countdowns[project.id]}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Schedule and Expiry Info */}
+                        {(project.scheduledTime ||
+                          project.expiryTime ||
+                          !project.scheduledTime ||
+                          !project.expiryTime) && (
+                            <div className="mt-4 text-sm">
+                              <div className="flex items-center gap-2 text-purple-600">
+                                <Calendar size={14} />
+                                <span>
+                                  Scheduled: {formatDate(project.scheduledTime)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-red-600 mt-1">
+                                <AlertTriangle size={14} />
+                                <span>
+                                  Expires: {formatDate(project.expiryTime)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                        {/* Description Toggle Button */}
+                        {project.description && (
+                          <div className="mt-4">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDescription(project.id);
+                              }}
+                              className="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors text-sm font-medium"
+                            >
+                              <IoInformationCircleOutline size={16} />
+                              {expandedDescription === project.id
+                                ? "Hide Description"
+                                : "Show Description"}
+                              {expandedDescription === project.id ? (
+                                <ChevronUp size={16} />
+                              ) : (
+                                <ChevronDown size={16} />
+                              )}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Expandable Description */}
+                        {expandedDescription === project.id &&
+                          project.description && (
+                            <div className="mt-3 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 animate-fade-in">
+                              <p className="text-sm text-slate-700 whitespace-pre-line">
+                                {project.description}
+                              </p>
+                            </div>
+                          )}
+
+                        {/* Push buttons to bottom with flex-grow */}
+                        <div className="mt-auto pt-6">
+                          <div className="flex justify-between items-center">
+                            {/* Admin buttons with proper hover visibility */}
+                            {isAdmin && (
+                              <div className="flex gap-2 invisible group-hover:visible">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRenameProjectId(project.id);
+                                    setProjectName(project.name);
+                                    setIsRenameModalOpen(true);
+                                    openEditModal(project);
+                                  }}
+                                  className="p-2 bg-blue-50 rounded-full hover:bg-blue-100 transition-colors z-10"
+                                >
+                                  <PencilLine
+                                    size={18}
+                                    className="text-blue-500"
+                                  />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setProjectToDelete(project);
+                                    setIsDeleteModalOpen(true);
+                                  }}
+                                  className="p-2 bg-red-50 rounded-full hover:bg-red-100 transition-colors z-10"
+                                  disabled={deleteLoading === project.id}
+                                >
+                                  {deleteLoading === project.id ? (
+                                    <Loader2
+                                      size={18}
+                                      className="text-red-500 animate-spin"
+                                    />
+                                  ) : (
+                                    <Trash2
+                                      size={18}
+                                      className="text-red-500"
+                                    />
+                                  )}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Leave Project button for non-admin collaborators */}
+                            {isNonAdminCollaborator && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setIsLeaveModalOpen(true);
+                                  setProjectToDelete(project);
+                                }}
+                                className="p-2 bg-orange-50 rounded-full hover:bg-orange-100 transition-colors invisible group-hover:visible z-10"
+                              >
+                                <LogOut size={18} className="text-orange-500" />
+                              </button>
+                            )}
+
+                            {/* Open Project button with different states */}
+                            {isScheduled && !isAdmin ? (
+                              <button
+                                className="bg-purple-100 text-purple-700 shadow-md transition-all duration-300 px-4 py-2 rounded-lg ml-auto flex items-center gap-2"
+                                disabled={true}
+                              >
+                                <IoInformationCircleOutline size={16} />
+                                Scheduled
+                              </button>
+                            ) : (
+                              <button
+                                className={`${isAvailable || isAdmin
+                                  ? "bg-gradient-to-r from-blue-500 to-blue-600"
+                                  : "bg-slate-400"
+                                  } text-white shadow-md hover:shadow-lg transition-all duration-300 px-4 py-2 rounded-lg ml-auto`}
+                                onClick={() => {
+                                  if (isAvailable || isAdmin) {
+                                    navigate(`/project/${project.id}`, {
+                                      state: { project },
+                                    });
+                                  }
+                                }}
+                                disabled={!isAvailable && !isAdmin}
+                              >
+                                {!isAvailable && !isAdmin
+                                  ? "Not Available"
+                                  : "Open Project"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <div className="col-span-full flex flex-col items-center justify-center h-64 bg-white rounded-xl shadow-sm p-8 text-center">
+                <FilePlus2 size={48} className="text-slate-300 mb-4" />
+                <h3 className="text-xl font-medium text-slate-700 mb-2">
+                  {activeTab === "scheduled"
+                    ? "No scheduled projects found"
+                    : "No projects found"}
+                </h3>
+                <p className="text-slate-500 mb-6">
+                  {searchTerm
+                    ? "Try a different search term or create a new project"
+                    : activeTab === "scheduled"
+                      ? "You have no scheduled projects at this time"
+                      : "Get started by creating your first project"}
+                </p>
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Create Project
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
+        {/* Create Modal */}
+        {isModalOpen && (
+          <div className="fixed  inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 animate-fade-in">
+            <div className="bg-white max-h-[90%] overflow-auto p-6 rounded-xl shadow-xl w-full max-w-md  border border-slate-100">
+              <div className="flex justify-between items-center mb-5 ">
+                <h3 className="text-xl font-semibold text-slate-800">
+                  Create New Project
+                </h3>
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-1 rounded-full hover:bg-slate-100 transition-colors"
+                  aria-label="Close modal"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              <form onSubmit={createProject} className="space-y-5">
+                <div>
+                  <label
+                    className="block text-sm font-medium text-slate-700 mb-1"
+                    htmlFor="projectName"
+                  >
+                    Project Name
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="projectName"
+                      type="text"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      placeholder="Enter project name"
+                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                      required
+                    />
+                    <Globe
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
+                      size={18}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    className="block text-sm font-medium text-slate-700 mb-1"
+                    htmlFor="language"
+                  >
+                    Programming Language
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="language"
+                      value={selectedLanguage}
+                      onChange={(e) => setSelectedLanguage(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white transition-colors"
+                    >
+                      {languages.map((language) => (
+                        <option key={language} value={language}>
+                          {language}
+                        </option>
+                      ))}
+                    </select>
+                    <Code
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
+                      size={18}
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <svg
+                        className="h-5 w-5 text-slate-400"
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                    htmlFor="description"
+                  >
+                    Description{" "}
+                    <span className="text-gray-400 text-xs">(optional)</span>
+                  </label>
+                  <textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Enter project description"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors h-24 resize-none"
+                  />
+                </div>
+
+                {/* New fields for scheduling and expiry */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="scheduleSwitch"
+                      checked={scheduleEnabled}
+                      onCheckedChange={setScheduleEnabled}
+                    />
+                    <label
+                      htmlFor="scheduleSwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Schedule Project
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Project will only be available to non-admin users after the scheduled time"
+                    />
+                  </div>
+
+                  {scheduleEnabled && (
+                    <div className="ml-7 mb-4 space-y-3">
+                      <div>
+                        <label
+                          className="block text-sm text-slate-600 mb-1"
+                          htmlFor="scheduleDate"
+                        >
+                          Schedule Date & Time
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="date"
+                            id="scheduleDate"
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            required
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            min={new Date().toISOString().split("T")[0]}
+                          />
+                          <input
+                            type="time"
+                            id="scheduleTime"
+                            value={scheduleTime}
+                            required
+                            onChange={(e) => setScheduleTime(e.target.value)}
+                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="expirySwitch"
+                      checked={expiryEnabled}
+                      onCheckedChange={setExpiryEnabled}
+                    />
+                    <label
+                      htmlFor="expirySwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Set Expiry Time
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Project will not be accessible to non-admin users after expiry time"
+                    />
+                  </div>
+
+                  {expiryEnabled && (
+                    <div className="ml-7 mb-4 space-y-3">
+                      <div>
+                        <label
+                          className="block text-sm text-slate-600 mb-1"
+                          htmlFor="expiryDate"
+                        >
+                          Expiry Date & Time
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="date"
+                            id="expiryDate"
+                            value={expiryDate}
+                            required
+                            onChange={(e) => setExpiryDate(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            min={
+                              scheduleEnabled
+                                ? scheduleDate
+                                : new Date().toISOString().split("T")[0]
+                            }
+                          />
+                          <input
+                            type="time"
+                            id="expiryTime"
+                            value={expiryTime}
+                            required
+                            onChange={(e) => setExpiryTime(e.target.value)}
+                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="adminOnlySwitch"
+                      checked={adminOnlyEdit}
+                      onCheckedChange={setAdminOnlyEdit}
+                    />
+                    <label
+                      htmlFor="adminOnlySwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Admin-only Edit
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Only admin collaborators can edit this project"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <div className="text-xs text-slate-500 mb-4">
+                    Your project will be set up with the standard configuration
+                    for {selectedLanguage}.
+                  </div>
+
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsModalOpen(false);
+                        setProjectName("");
+                        setDescription("");
+                        setScheduleEnabled(false);
+                        setExpiryEnabled(false);
+                        setAdminOnlyEdit(false);
+                      }}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                      disabled={
+                        !projectName.trim() ||
+                        (scheduleEnabled && !scheduleDate) ||
+                        (expiryEnabled && !expiryDate)
+                      }
+                    >
+                      Create Project
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Updated Rename/Edit Modal */}
+        {isRenameModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 animate-fade-in">
+            <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md border border-slate-100">
+              <div className="flex justify-between items-center mb-5">
+                <h3 className="text-xl font-semibold text-slate-800">
+                  Edit Project
+                </h3>
+                <button
+                  onClick={() => {
+                    setIsRenameModalOpen(false);
+                    resetEditForm();
+                  }}
+                  className="p-1 rounded-full hover:bg-slate-100 transition-colors"
+                  aria-label="Close modal"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              <form onSubmit={updateProject} className="space-y-5">
+                <div>
+                  <label
+                    className="block text-sm font-medium text-slate-700 mb-1"
+                    htmlFor="editProjectName"
+                  >
+                    Project Name
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="editProjectName"
+                      type="text"
+                      value={editProjectName}
+                      onChange={(e) => setEditProjectName(e.target.value)}
+                      placeholder="Enter project name"
+                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                      required
+                    />
+                    <Globe
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
+                      size={18}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    className="block text-sm font-medium text-slate-700 mb-1"
+                    htmlFor="editLanguage"
+                  >
+                    Programming Language
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="editLanguage"
+                      value={editLanguage}
+                      onChange={(e) => setEditLanguage(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white transition-colors"
+                    >
+                      {languages.map((language) => (
+                        <option key={language} value={language}>
+                          {language}
+                        </option>
+                      ))}
+                    </select>
+                    <Code
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
+                      size={18}
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <svg
+                        className="h-5 w-5 text-slate-400"
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                    htmlFor="editDescription"
+                  >
+                    Description{" "}
+                    <span className="text-gray-400 text-xs">(optional)</span>
+                  </label>
+                  <textarea
+                    id="editDescription"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Enter project description"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors h-24 resize-none"
+                  />
+                </div>
+
+                {/* Schedule fields */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="editScheduleSwitch"
+                      checked={editScheduleEnabled}
+                      onCheckedChange={setEditScheduleEnabled}
+                    />
+                    <label
+                      htmlFor="editScheduleSwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Schedule Project
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Project will only be available to non-admin users after the scheduled time"
+                    />
+                  </div>
+
+                  {editScheduleEnabled && (
+                    <div className="ml-7 mb-4 space-y-3">
+                      <div>
+                        <label
+                          className="block text-sm text-slate-600 mb-1"
+                          htmlFor="editScheduleDate"
+                        >
+                          Schedule Date & Time
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            required
+                            type="date"
+                            id="editScheduleDate"
+                            value={editScheduleDate}
+                            onChange={(e) =>
+                              setEditScheduleDate(e.target.value)
+                            }
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            min={new Date().toISOString().split("T")[0]}
+                          />
+                          <input
+                            required
+                            type="time"
+                            id="editScheduleTime"
+                            value={editScheduleTime}
+                            onChange={(e) =>
+                              setEditScheduleTime(e.target.value)
+                            }
+                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Expiry fields */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="editExpirySwitch"
+                      checked={editExpiryEnabled}
+                      onCheckedChange={setEditExpiryEnabled}
+                    />
+                    <label
+                      htmlFor="editExpirySwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Set Expiry Time
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Project will not be accessible to non-admin users after expiry time"
+                    />
+                  </div>
+
+                  {editExpiryEnabled && (
+                    <div className="ml-7 mb-4 space-y-3">
+                      <div>
+                        <label
+                          className="block text-sm text-slate-600 mb-1"
+                          htmlFor="editExpiryDate"
+                        >
+                          Expiry Date & Time
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            required
+                            type="date"
+                            id="editExpiryDate"
+                            value={editExpiryDate}
+                            onChange={(e) => setEditExpiryDate(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            min={
+                              editScheduleEnabled
+                                ? editScheduleDate
+                                : new Date().toISOString().split("T")[0]
+                            }
+                          />
+                          <input
+                            required
+                            type="time"
+                            id="editExpiryTime"
+                            value={editExpiryTime}
+                            onChange={(e) => setEditExpiryTime(e.target.value)}
+                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Admin-only edit toggle */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Switch
+                      id="editAdminOnlySwitch"
+                      checked={editAdminOnlyEdit}
+                      onCheckedChange={setEditAdminOnlyEdit}
+                    />
+                    <label
+                      htmlFor="editAdminOnlySwitch"
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Admin-only Edit
+                    </label>
+                    <Info
+                      size={16}
+                      className="text-slate-400 cursor-help"
+                      title="Only admin collaborators can edit this project"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRenameModalOpen(false);
+                        resetEditForm();
+                      }}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                      disabled={
+                        !editProjectName.trim() ||
+                        (editScheduleEnabled && !editScheduleDate) ||
+                        (editExpiryEnabled && !editExpiryDate)
+                      }
+                    >
+                      Update Project
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        {/* Delete Modal */}
+        {isDeleteModalOpen && projectToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+              <h3 className="text-xl font-medium text-slate-800 mb-4">
+                Delete Project
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">
+                Are you sure you want to delete the project{" "}
+                <strong>{projectToDelete.name}</strong>? This action cannot be
+                undone. To confirm, please type the project name below:
+              </p>
+              <input
+                type="text"
+                value={confirmDeleteName}
+                onChange={(e) => setConfirmDeleteName(e.target.value)}
+                placeholder="Project name"
+                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteModalOpen(false);
+                    setProjectToDelete(null);
+                    setConfirmDeleteName("");
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={deleteProject}
+                  disabled={
+                    confirmDeleteName !== projectToDelete.name ||
+                    deleteLoading === projectToDelete.id
+                  }
+                  className={`px-4 py-2 text-white rounded-lg ${confirmDeleteName === projectToDelete.name && !deleteLoading
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-gray-400"
+                    }`}
+                >
+                  {deleteLoading === projectToDelete.id ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    "Delete"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isLeaveModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+            <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl">
+              <div>
+                <h3 className="text-lg font-medium">Leave Project</h3>
+                <p className="text-slate-500 mt-2">
+                  Are you sure you want to leave this project? You will lose
+                  access to all project resources.
+                </p>
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <Button onClick={() => setIsLeaveModalOpen(false)}>
+                  Cancel
+                </Button>
+                <button
+                  onClick={() => {
+                    if (projectToDelete) {
+                      handleLeaveProject(projectToDelete);
+                    }
+                  }}
+                  disabled={leaveLoading}
+                >
+                  {leaveLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Leaving...
+                    </>
+                  ) : (
+                    "Leave Project"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Home;
