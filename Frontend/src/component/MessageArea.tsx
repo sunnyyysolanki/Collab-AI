@@ -156,7 +156,17 @@ const MessageArea: React.FC<MessageAreaProps> = ({
 
   const renderMessageContent = (msg: Message) => {
     if (msg.sender === "AI") {
-      const messageObject = JSON.parse(msg.message);
+      // The AI message may be JSON ({ text, fileTree, ... }) OR plain markdown.
+      // JSON.parse here runs DURING RENDER — if it throws, React unmounts the
+      // whole app (white screen). So parse defensively and fall back to raw text.
+      let displayText: string = msg.message;
+      try {
+        const parsed = JSON.parse(msg.message);
+        displayText = parsed?.text ?? msg.message;
+      } catch {
+        displayText = msg.message; // not JSON — show it as-is
+      }
+
       return (
         <div className="overflow-auto bg-slate-950 text-white p-2 rounded-md">
           <Markdown
@@ -172,7 +182,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
               },
             }}
           >
-            {messageObject.text || "No content provided."}
+            {displayText || "No content provided."}
           </Markdown>
         </div>
       );

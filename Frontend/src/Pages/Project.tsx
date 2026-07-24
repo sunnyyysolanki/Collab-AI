@@ -12,6 +12,7 @@ import CodeEditor from "../component/Monaco";
 import { WebContainer } from "@webcontainer/api";
 import { getWebContainer } from "../config/wbContainer";
 import Explorer from "../component/Explorer";
+import ErrorBoundary from "../component/ErrorBoundary";
 import { Link, UserPlus, Users } from "lucide-react";
 import { handleSuccess, handleError } from "../config/toastUtility";
 
@@ -503,11 +504,13 @@ const Project = () => {
           </button>
         </header>
 
-        <MessageArea
-          messages={messages}
-          setMessages={setMessages}
-          project={project}
-        />
+        <ErrorBoundary>
+          <MessageArea
+            messages={messages}
+            setMessages={setMessages}
+            project={project}
+          />
+        </ErrorBoundary>
 
         <SlidePanel
           isOpen={isSlidePanelOpen}
