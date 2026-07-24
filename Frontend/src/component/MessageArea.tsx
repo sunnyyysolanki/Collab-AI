@@ -307,6 +307,41 @@ const MessageArea: React.FC<MessageAreaProps> = ({
           backgroundColor: "#e5ddd5",
         }}
       >
+        {/* First-visit hint: teach the @ai feature when the chat is empty. */}
+        {messages.length === 0 && (
+          <div className="mx-auto my-6 max-w-sm bg-white/95 rounded-xl shadow-md p-4 text-gray-800">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg">🤖</span>
+              <h4 className="font-semibold">Chat with AI — build projects instantly</h4>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Start any message with{" "}
+              <span className="font-mono font-semibold text-indigo-600">@ai</span>{" "}
+              and the assistant will generate a full project into your files —
+              then hit <span className="font-semibold">Run</span> to see it live.
+            </p>
+            <div className="space-y-1.5 text-sm">
+              {[
+                "@ai give me a MERN project with a hello endpoint",
+                "@ai create an Express REST API for todos",
+                "@ai add a dark mode toggle to the React app",
+              ].map((ex) => (
+                <button
+                  key={ex}
+                  onClick={() => setMessage(ex)}
+                  className="block w-full text-left font-mono text-xs bg-gray-100 hover:bg-indigo-50 border border-gray-200 rounded px-2 py-1.5 transition-colors"
+                  title="Click to use this prompt"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-3">
+              Tip: click an example to fill the box, or just type your own. Plain
+              messages (without @ai) go to your collaborators as normal chat.
+            </p>
+          </div>
+        )}
         {Object.entries(messageGroups).map(([date, msgs]) => (
           <div key={date} className="date-group">
             {msgs.map((msg, _groupIdx) => {
@@ -377,7 +412,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-grow py-2 px-1 outline-none text-gray-800"
-            placeholder="Type a message"
+            placeholder="Type a message, or @ai to generate code…"
           />
           <button
             onClick={handleSendMessage}
