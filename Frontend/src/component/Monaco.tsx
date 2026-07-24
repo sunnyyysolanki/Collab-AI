@@ -583,8 +583,36 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     saveEditorPreferences();
   }, [editorTheme, fontSize, wordWrap, showMinimap]);
 
-  const checkForPackageJson = (tree: FileTree): boolean => {
-    return "package.json" in tree;
+  // Find the directory that contains a package.json (root or nested, e.g. the
+  // AI often puts it in a "server"/"backend" subfolder). Returns "" for root,
+  // or a path like "server". Prefers root, then a folder whose name suggests a
+  // backend, otherwise the first folder that has one. null if none exists.
+  const findPackageJsonDir = (
+    tree: FileTree,
+    basePath = ""
+  ): string | null => {
+    if ("package.json" in tree) return basePath;
+
+    const dirEntries = Object.entries(tree).filter(
+      ([, node]) => "directory" in node
+    );
+
+    // Prefer a backend-ish folder so `npm start` runs the server.
+    const preferredOrder = dirEntries.sort(([a], [b]) => {
+      const rank = (n: string) =>
+        /^(server|backend|api)$/i.test(n) ? 0 : 1;
+      return rank(a) - rank(b);
+    });
+
+    for (const [name, node] of preferredOrder) {
+      const childTree = (node as DirectoryContent).directory;
+      const found = findPackageJsonDir(
+        childTree,
+        basePath ? `${basePath}/${name}` : name
+      );
+      if (found !== null) return found;
+    }
+    return null;
   };
 
   const addLog = (type: "install" | "server", message: string) => {
@@ -675,17 +703,31 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       await webContainer.mount(fileTree);
       addLog("install", "✅ Files mounted successfully");
 
-      // Check for package.json
-      if (!checkForPackageJson(fileTree)) {
-        addLog("install", "❌ Error: No package.json found in project root");
+      // Locate package.json (root OR nested, e.g. inside "server"/"backend").
+      const pkgDir = findPackageJsonDir(fileTree);
+      if (pkgDir === null) {
+        addLog(
+          "install",
+          "❌ Error: No package.json found anywhere in the project"
+        );
         setIsRunning(false);
         setHasError(true);
         return;
       }
 
+      // Run npm in the directory that actually has package.json.
+      const spawnOpts = pkgDir ? { cwd: pkgDir } : undefined;
+      if (pkgDir) {
+        addLog("install", `📁 Using package.json in "./${pkgDir}"`);
+      }
+
       // Install dependencies
       addLog("install", "📦 Installing dependencies...");
-      const installProcess = await webContainer.spawn("npm", ["install"]);
+      const installProcess = await webContainer.spawn(
+        "npm",
+        ["install"],
+        spawnOpts
+      );
 
       const installExitPromise = new Promise((resolve, reject) => {
         installProcess.output.pipeTo(
@@ -711,10 +753,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       addLog("install", "🔄 Clearing port 3000...");
       await webContainer.spawn("npx", ["kill-port", "3000"]);
 
-      // Start development server
+      // Start development server (in the same package.json directory)
       addLog("install", "🚀 Starting development server...");
       addLog("server", "🚀 Starting development server...");
-      const devProcess = await webContainer.spawn("npm", ["start"]);
+      const devProcess = await webContainer.spawn("npm", ["start"], spawnOpts);
       setRunProcess(devProcess);
 
       devProcess.output.pipeTo(
