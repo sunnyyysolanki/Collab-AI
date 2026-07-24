@@ -378,6 +378,21 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   // User-editable path appended to the selected server URL (e.g. /api/hello),
   // so backend routes are reachable instead of just showing "Cannot GET /".
   const [previewPath, setPreviewPath] = useState<string>("/");
+  // Live per-app status so the user can SEE that (e.g.) the frontend is still
+  // installing in the background even after the backend is already running.
+  type AppPhase = "installing" | "starting" | "ready" | "failed";
+  const [appStatuses, setAppStatuses] = useState<
+    { name: string; phase: AppPhase; port?: number }[]
+  >([]);
+  const setAppStatus = (name: string, phase: AppPhase, port?: number) =>
+    setAppStatuses((prev) => {
+      const idx = prev.findIndex((a) => a.name === name);
+      const entry = { name, phase, port: port ?? prev[idx]?.port };
+      if (idx === -1) return [...prev, entry];
+      const next = [...prev];
+      next[idx] = entry;
+      return next;
+    });
   const [runProcess, setRunProcess] = useState<WebContainerProcess | null>(
     null
   );
@@ -755,6 +770,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     setIsRunning(true);
     setInstallLogs([]);
     setServerLogs([]);
+    setAppStatuses([]);
     setActiveTab("logs");
     setLogType("install");
     setHasError(false);
@@ -797,6 +813,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         p === 3000 || p === 5173 || p === 4173 || p === 8080;
       webContainer.on("server-ready", (port, url) => {
         const kind = isFrontendPort(port) ? "Frontend" : "Backend";
+        setAppStatus(kind, "ready", port);
         logStatus("install", `✨ ${kind} ready on port ${port}`);
         logStatus("server", `✨ ${kind} ready on port ${port}`);
         setServerUrls((prev) => {
@@ -828,6 +845,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           : /^(client|frontend|web|app)$/i.test(base)
             ? "Frontend"
             : base;
+        setAppStatus(nice, "installing");
         try {
           logStatus("install", `📦 ${nice}: installing dependencies…`);
           const installProcess = await webContainer.spawn(
@@ -846,11 +864,13 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           );
           const code = await installProcess.exit;
           if (code !== 0) {
+            setAppStatus(nice, "failed");
             logStatus("install", `❌ ${nice}: install failed (code ${code})`);
             return;
           }
           logStatus("install", `✅ ${nice}: dependencies installed`);
 
+          setAppStatus(nice, "starting");
           logStatus("install", `🚀 ${nice}: starting dev server…`);
           logStatus("server", `🚀 ${nice}: starting dev server…`);
           // For create-react-app, disable the ESLint overlay + treat warnings as
@@ -875,11 +895,13 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
               },
             })
           );
-          devProcess.exit.then((c) =>
-            logStatus("server", `⚠️ ${nice}: dev server exited (code ${c})`)
-          );
+          devProcess.exit.then((c) => {
+            setAppStatus(nice, "failed");
+            logStatus("server", `⚠️ ${nice}: dev server exited (code ${c})`);
+          });
           startedProcesses.push(devProcess);
         } catch (e) {
+          setAppStatus(nice, "failed");
           logStatus(
             "install",
             `❌ ${nice}: failed — ${e instanceof Error ? e.message : e}`
@@ -1494,6 +1516,23 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
                     Go
                   </button>
                 </div>
+                {/* Tell the user when an app (usually the slow Frontend) is still
+                    coming up, so they don't think the preview is all there is. */}
+                {appStatuses.some(
+                  (a) => a.phase === "installing" || a.phase === "starting"
+                ) && (
+                  <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-yellow-900/60 text-yellow-100 text-sm">
+                    <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    {appStatuses
+                      .filter(
+                        (a) =>
+                          a.phase === "installing" || a.phase === "starting"
+                      )
+                      .map((a) => a.name)
+                      .join(" & ")}{" "}
+                    still starting… the preview will update when ready.
+                  </div>
+                )}
                 <iframe
                   src={`${iframeUrl.replace(/\/$/, "")}${
                     previewPath.startsWith("/") ? previewPath : `/${previewPath}`
@@ -1514,6 +1553,55 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
         {activeTab === "logs" && (
           <div className="h-full w-full bg-gray-900 text-white p-2 flex flex-col overflow-hidden">
+            {/* Live per-app status so the user always knows what's still running
+                in the background (e.g. Frontend still installing after Backend
+                is ready). */}
+            {appStatuses.length > 0 && (
+              <div className="shrink-0 mb-2 space-y-1">
+                {appStatuses.map((a) => {
+                  const inProgress =
+                    a.phase === "installing" || a.phase === "starting";
+                  const color =
+                    a.phase === "ready"
+                      ? "text-green-400"
+                      : a.phase === "failed"
+                        ? "text-red-400"
+                        : "text-yellow-400";
+                  const label =
+                    a.phase === "installing"
+                      ? "installing dependencies… (can take 1–2 min)"
+                      : a.phase === "starting"
+                        ? "starting server…"
+                        : a.phase === "ready"
+                          ? `ready${a.port ? ` · port ${a.port}` : ""}`
+                          : "failed — check logs";
+                  return (
+                    <div
+                      key={a.name}
+                      className="flex items-center gap-2 text-sm bg-gray-800 rounded px-3 py-1.5"
+                    >
+                      {inProgress ? (
+                        <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin text-yellow-400" />
+                      ) : (
+                        <span className={color}>
+                          {a.phase === "ready" ? "●" : "✕"}
+                        </span>
+                      )}
+                      <span className="font-semibold w-20">{a.name}</span>
+                      <span className={color}>{label}</span>
+                    </div>
+                  );
+                })}
+                {appStatuses.some(
+                  (a) => a.phase === "installing" || a.phase === "starting"
+                ) && (
+                  <div className="text-xs text-gray-400 px-1">
+                    ⏳ Still working — the preview updates automatically as each
+                    app comes up.
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex mb-2 space-x-2 shrink-0">
               <button
                 className={`px-2 py-1 rounded text-sm ${logType === "install" ? "bg-blue-600" : "bg-gray-700"
