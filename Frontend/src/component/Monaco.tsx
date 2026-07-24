@@ -637,14 +637,32 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 
+  // Keep at most this many lines per log so a chatty install can never blow up
+  // the UI (npm streams thousands of spinner frames).
+  const MAX_LOG_LINES = 500;
+
+  // True for empty lines and npm's progress-spinner frames (\ | / - / braille),
+  // which arrive as thousands of one-char lines and flood the log.
+  const isNoiseLine = (line: string): boolean => {
+    const t = line.trim();
+    return t === "" || /^[\\|/\-⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]+$/.test(t);
+  };
+
   const addLog = (type: "install" | "server", message: string) => {
-    const clean = stripAnsi(message);
-    if (!clean.trim()) return; // drop lines that were pure control codes
-    if (type === "install") {
-      setInstallLogs((prev) => [...prev, clean]);
-    } else {
-      setServerLogs((prev) => [...prev, clean]);
-    }
+    // A single chunk may contain many newline-separated frames — clean each.
+    const lines = stripAnsi(message)
+      .split(/\r?\n/)
+      .map((l) => l.trimEnd())
+      .filter((l) => !isNoiseLine(l));
+    if (lines.length === 0) return;
+
+    const setter = type === "install" ? setInstallLogs : setServerLogs;
+    setter((prev) => {
+      const next = [...prev, ...lines];
+      return next.length > MAX_LOG_LINES
+        ? next.slice(next.length - MAX_LOG_LINES)
+        : next;
+    });
   };
 
   const flattenFileTree = (
@@ -1318,8 +1336,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         </div>
       )}
 
-      {/* Content area */}
-      <div className="flex-grow relative">
+      {/* Content area — min-h-0 + overflow-hidden so logs/editor stay bounded
+          inside the flex column instead of expanding and breaking the page. */}
+      <div className="flex-grow relative min-h-0 overflow-hidden">
         {activeTab === "editor" && (
           <div className="h-full w-full">
             {currentFile ? (
