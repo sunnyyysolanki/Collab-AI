@@ -231,90 +231,23 @@ const Explorer: React.FC<ExplorerProps> = ({
 
 
     useEffect(() => {
-        receiveMessage("fileTree-update", (data: any) => {
+        // NOTE: file-created / file-renamed / file-deleted are handled by the parent
+        // (Project.tsx), which owns fileTree. Subscribing to them here too caused
+        // duplicate handlers -> duplicate toasts. Only handle events unique to Explorer.
+        const unsubTreeUpdate = receiveMessage("fileTree-update", (data: any) => {
             setFileTree(data);
         });
 
-        receiveMessage(
-            "file-renamed",
-            (data: { oldPath: string; newPath: string; username: string }) => {
-                const updatedTree = updateNodeAtPath(
-                    fileTree,
-                    data.oldPath,
-                    null,
-                    "delete"
-                );
-                const node = getNodeAtPath(data.oldPath);
-                if (node) {
-                    updateNodeAtPath(updatedTree, data.newPath, node, "create");
-                    setFileTree(updatedTree);
-                    const itemType = isDirectory(node) ? "folder" : "file";
-                    handleSuccess(
-                        `${itemType.charAt(0).toUpperCase() + itemType.slice(1)
-                        } renamed from "${data.oldPath}" to "${data.newPath}" by ${data.username
-                        }.`
-                    );
-                }
-            }
-        );
-
-        receiveMessage(
-            "file-created",
-            (data: {
-                path: string;
-                type: "file" | "directory";
-                username: string;
-            }) => {
-                const newNode: FileNode =
-                    data.type === "file"
-                        ? { file: { contents: "", language: "plaintext" } }
-                        : { directory: {} };
-                const updatedTree = updateNodeAtPath(
-                    fileTree,
-                    data.path,
-                    newNode,
-                    "create"
-                );
-                setFileTree(updatedTree);
-                handleSuccess(
-                    `${data.type.charAt(0).toUpperCase() + data.type.slice(1)
-                    } created at "${data.path}" by ${data.username}.`
-                );
-            }
-        );
-
-        receiveMessage(
-            "file-deleted",
-            (data: { path: string; username: string }) => {
-                const updatedTree = updateNodeAtPath(
-                    fileTree,
-                    data.path,
-                    null,
-                    "delete"
-                );
-                setFileTree(updatedTree);
-                const node = getNodeAtPath(data.path);
-                const itemType = node && isDirectory(node) ? "folder" : "file";
-                handleSuccess(
-                    `${itemType.charAt(0).toUpperCase() + itemType.slice(1)
-                    } deleted at "${data.path}" by ${data.username}.`
-                );
-            }
-        );
-
-        receiveMessage(
+        const unsubImported = receiveMessage(
             "files-imported",
             (data: {
                 importedItems: { name: string; type: "file" | "directory" }[];
                 username: string;
             }) => {
-                console.log("Received files-imported message:", data);
                 const importedItems = data.importedItems;
-                console.log("Imported items:", importedItems);
                 if (importedItems.length > 2) {
-                    handleSuccess("This is a test notification.");
                     handleSuccess(
-                        `${importedItems[0].name} (${importedItems[0].type}) imported by ${data.username}.`
+                        `${importedItems.length} items imported by ${data.username}.`
                     );
                 } else {
                     const itemNames = importedItems
@@ -324,7 +257,16 @@ const Explorer: React.FC<ExplorerProps> = ({
                 }
             }
         );
-    }, [fileTree, setFileTree, user?.email]);
+
+        // Clean up on unmount so listeners don't stack up across re-mounts.
+        return () => {
+            unsubTreeUpdate();
+            unsubImported();
+        };
+        // Empty deps: subscribe ONCE. Re-subscribing on every fileTree change was
+        // what multiplied the listeners (and the toasts).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const mergeTrees = (target: FileTree, source: FileTree): void => {
         Object.entries(source).forEach(([key, value]) => {

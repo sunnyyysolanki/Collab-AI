@@ -191,7 +191,7 @@ const Project = () => {
 
     const socketInstance = initializeSocket(project.id);
 
-    receiveMessage("project-message", async (data: any) => {
+    const unsubProjectMessage = receiveMessage("project-message", async (data: any) => {
       if (user && data.sender !== user.email) {
         const incomingMessage: Message = {
           sender: data.sender,
@@ -229,7 +229,7 @@ const Project = () => {
       }
     });
 
-    receiveMessage(
+    const unsubRenamed = receiveMessage(
       "file-renamed",
       (data: { oldPath: string; newPath: string; username: string }) => {
         const node = getNodeAtPath(data.oldPath);
@@ -265,7 +265,7 @@ const Project = () => {
       }
     );
 
-    receiveMessage(
+    const unsubCreated = receiveMessage(
       "file-created",
       (data: {
         path: string;
@@ -298,7 +298,7 @@ const Project = () => {
       }
     );
 
-    receiveMessage(
+    const unsubDeleted = receiveMessage(
       "file-deleted",
       (data: { path: string; username: string }) => {
         // Read the node BEFORE deleting so we can report its type correctly.
@@ -350,7 +350,11 @@ const Project = () => {
       .catch((err) => console.error("Error fetching users:", err));
 
     return () => {
-      // Clean up event listeners
+      // Clean up event listeners so they don't stack up (which multiplies toasts).
+      unsubProjectMessage();
+      unsubRenamed();
+      unsubCreated();
+      unsubDeleted();
       socketInstance?.off("collaboratorAdded");
       socketInstance?.off("adminOnlyModeToggled");
     };

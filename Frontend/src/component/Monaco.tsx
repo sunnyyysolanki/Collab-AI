@@ -410,9 +410,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     if (activeTab === "editor" && currentFile) {
       setEditorKey((prev) => prev + 1);
     }
-    receiveMessage("project-code", (data: any) => {
-      setFileTree(data);
-    });
 
     const savedTheme = localStorage.getItem("editorTheme");
     const savedFontSize = localStorage.getItem("editorFontSize");
@@ -430,6 +427,16 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       }
     };
   }, [activeTab, currentFile]);
+
+  // Socket subscription: register ONCE with cleanup. Previously this lived in the
+  // effect above (deps [activeTab, currentFile]) with no cleanup, so switching tabs
+  // or files stacked duplicate "project-code" listeners.
+  useEffect(() => {
+    const unsub = receiveMessage("project-code", (data: any) => {
+      setFileTree(data);
+    });
+    return unsub;
+  }, []);
 
   // Function to handle editor mounting
   const handleEditorDidMount = (editor: any, monaco: any) => {
