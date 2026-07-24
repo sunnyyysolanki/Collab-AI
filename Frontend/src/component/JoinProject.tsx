@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axiosInstance from '../config/axios';
 import { useSelector } from 'react-redux';
 import { RootState } from '../App/store';
 import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
@@ -63,11 +63,7 @@ const JoinProject: React.FC = () => {
 
         const joinProject = async () => {
             try {
-                const response = await axios.get<any>(`${import.meta.env.VITE_API_URL}/project/join/${token}`, {
-                    headers: {
-                        Authorization: `Bearer ${localStorage.getItem('token')}`,
-                    },
-                });
+                const response = await axiosInstance.get<any>(`/project/join/${token}`);
                 setProject(response.data.project);
                 setMessage(response.data.message);
                 setStatus('success');

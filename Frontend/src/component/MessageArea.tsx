@@ -5,7 +5,7 @@ import Markdown from "markdown-to-jsx";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { sendMessage } from "../config/socket";
-import axios from "axios";
+import axiosInstance from "../config/axios";
 import whatsappBg from "../assets/Screenshot 2025-04-13 at 12.20.47╬ôC╠º┬╗AM.png"; // You'll need to add this asset
 
 interface Message {
@@ -89,16 +89,11 @@ const MessageArea: React.FC<MessageAreaProps> = ({
       setMessages((prevMessages) => [...prevMessages, newMessage]);
       sendMessage("project-message", { message, sender: user.email });
       try {
-        await axios.post(
-          `${import.meta.env.VITE_API_URL}/project/add-message`,
+        await axiosInstance.post(
+          `/project/add-message`,
           {
             projectId: project.id,
             message,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
           }
         );
       } catch (error) {

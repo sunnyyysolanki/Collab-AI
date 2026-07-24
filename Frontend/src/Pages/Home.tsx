@@ -12,7 +12,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { Switch } from "../component/ui/Switch"; // Adjust the path if necessary
-import axios from "axios";
+import axiosInstance from "../config/axios";
 import { useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { RootState } from "../App/store";
@@ -112,15 +112,8 @@ const Home = () => {
 
   const fetchProjects = () => {
     setIsLoading(true);
-    axios
-      .get<{ projects: Project[] }>(
-        `${import.meta.env.VITE_API_URL}/project/all`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
-      )
+    axiosInstance
+      .get<{ projects: Project[] }>("/project/all")
       .then((res) => {
         console.log(res.data.projects);
         setProjects(res.data.projects);
@@ -256,13 +249,12 @@ const Home = () => {
         payload.adminOnlyEdit = adminOnlyEdit;
       }
 
-      const res = await axios.post<{ project: Project }>(
-        `${import.meta.env.VITE_API_URL}/project/create`,
+      const res = await axiosInstance.post<{ project: Project }>(
+        "/project/create",
         payload,
         {
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
         }
       );
@@ -339,14 +331,9 @@ const Home = () => {
         payload.adminOnlyEdit = adminOnlyEdit;
       }
 
-      const res = await axios.patch<{ project: Project }>(
-        `${import.meta.env.VITE_API_URL}/project/update/${renameProjectId}`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+      const res = await axiosInstance.patch<{ project: Project }>(
+        `/project/update/${renameProjectId}`,
+        payload
       );
       console.log(res);
 
@@ -417,13 +404,8 @@ const Home = () => {
     setDeleteLoading(projectToDelete.id);
 
     try {
-      await axios.delete<{ project: Project }>(
-        `${import.meta.env.VITE_API_URL}/project/delete/${projectToDelete.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+      await axiosInstance.delete<{ project: Project }>(
+        `/project/delete/${projectToDelete.id}`
       );
       setProjects((prevProjects) =>
         prevProjects
@@ -461,15 +443,10 @@ const Home = () => {
   const handleLeaveProject = async (project: Project) => {
     setLeaveLoading(true);
     try {
-      const response = await axios.put<any>(
-        `${import.meta.env.VITE_API_URL}/project/leave-project`,
+      const response = await axiosInstance.put<any>(
+        "/project/leave-project",
         {
           projectId: project.id,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
         }
       );
 

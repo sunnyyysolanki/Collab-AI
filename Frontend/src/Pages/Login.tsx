@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { LogIn, Mail, Lock } from 'lucide-react';
-import axios from 'axios';
+import axiosInstance from '../config/axios';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../App/store';
 import { validateToken } from '../redux/auth.slice';
@@ -45,9 +45,9 @@ const Login = () => {
         setError(null);
 
         try {
-            const res = await axios.post<{ user: User; token: string }>(`${import.meta.env.VITE_API_URL}/users/login`, { email, password });
+            const res = await axiosInstance.post<{ user: User; token: string }>(`/users/login`, { email, password });
             const { token } = res.data;
-            handleSuccess("Signup Successfull");
+            handleSuccess("Login Successful");
 
             localStorage.setItem('token', token);
             await dispatch(validateToken());

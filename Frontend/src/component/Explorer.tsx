@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { receiveMessage, sendMessage } from "../config/socket";
-import axios from "../config/axios";
+import axiosInstance from "../config/axios";
 import {
     Folder,
     FolderOpen,
@@ -906,8 +906,8 @@ const Explorer: React.FC<ExplorerProps> = ({
     };
 
     const saveToBackend = (ft: FileTree) => {
-        axios
-            .put(`${import.meta.env.VITE_API_URL}/project/update-file-tree`, {
+        axiosInstance
+            .put(`/project/update-file-tree`, {
                 projectId: project.id,
                 fileTree: ft,
             })

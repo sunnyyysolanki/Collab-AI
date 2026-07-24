@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import axios from "axios";
+import axiosInstance from "../config/axios";
 import { initializeSocket, receiveMessage } from "../config/socket";
 import { useSelector } from "react-redux";
 import { RootState } from "../App/store";
@@ -180,16 +180,11 @@ const Project = () => {
             setFileTree(message.fileTree);
 
             try {
-              const response = await axios.put(
-                `${import.meta.env.VITE_API_URL}/project/update-file-tree`,
+              const response = await axiosInstance.put(
+                `/project/update-file-tree`,
                 {
                   projectId: project.id,
                   fileTree: message.fileTree,
-                },
-                {
-                  headers: {
-                    Authorization: `Bearer ${localStorage.getItem("token")}`,
-                  },
                 }
               );
               console.log("response", response.data);
@@ -296,15 +291,10 @@ const Project = () => {
         setOpenFiles(openFiles.filter((file) => file !== data.path));
       }
     );
-    axios
+    axiosInstance
       .get<{ project: Project; userAccess: UserAccess }>(
-        `${import.meta.env.VITE_API_URL}/project/get-project/${location.state.project.id
-        }`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+        `/project/get-project/${location.state.project.id
+        }`
       )
       .then((res) => {
         console.log(res.data);
@@ -322,12 +312,8 @@ const Project = () => {
       })
       .catch((err) => console.error("Error fetching project data:", err));
 
-    axios
-      .get<User[]>(`${import.meta.env.VITE_API_URL}/users/all`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      })
+    axiosInstance
+      .get<User[]>(`/users/all`)
       .then((res) => setAllUsers(res.data))
       .catch((err) => console.error("Error fetching users:", err));
 
@@ -343,28 +329,18 @@ const Project = () => {
     accessLevel: string
   ) => {
     try {
-      await axios.put(
-        `${import.meta.env.VITE_API_URL}/project/add-user`,
+      await axiosInstance.put(
+        `/project/add-user`,
         {
           projectId: project.id,
           users: selectedUsers,
           accessLevel: accessLevel,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
         }
       );
 
       // Update collaborators list by fetching the project data again
-      const response = await axios.get<any>(
-        `${import.meta.env.VITE_API_URL}/project/get-project/${project.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+      const response = await axiosInstance.get<any>(
+        `/project/get-project/${project.id}`
       );
 
       setCollaborators(response.data.project.collaborators);
@@ -378,16 +354,11 @@ const Project = () => {
 
   const handleRemoveCollaborator = async (userId: string) => {
     try {
-      await axios.post(
-        `${import.meta.env.VITE_API_URL}/project/remove-collaborator`,
+      await axiosInstance.post(
+        `/project/remove-collaborator`,
         {
           projectId: project.id,
           collaboratorId: userId,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
         }
       );
 
@@ -405,17 +376,12 @@ const Project = () => {
   ) => {
     try {
       console.log("newAccesslevel", newAccessLevel);
-      const response = await axios.patch<any>(
-        `${import.meta.env.VITE_API_URL}/project/update-collaborator-access`,
+      const response = await axiosInstance.patch<any>(
+        `/project/update-collaborator-access`,
         {
           projectId: project.id,
           collaboratorId: userId,
           accessLevel: newAccessLevel,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
         }
       );
 
@@ -440,14 +406,12 @@ const Project = () => {
     adminOnlyEdit: boolean
   ) => {
     try {
-      const response = await axios.patch<any>(
-        `${import.meta.env.VITE_API_URL
-        }/project/toggle-admin-only-edit/${projectId}`,
+      const response = await axiosInstance.patch<any>(
+        `/project/toggle-admin-only-edit/${projectId}`,
         { adminOnlyEdit },
         {
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
             // Add any authentication headers if necessary
           },
         }

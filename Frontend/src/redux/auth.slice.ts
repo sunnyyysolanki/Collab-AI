@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
+import axiosInstance from '../config/axios';
 
 interface User {
     id: string;
@@ -23,11 +23,7 @@ const initialState: UserState = {
 // Async thunk to validate JWT
 export const validateToken = createAsyncThunk('/user/validateToken', async (_, { rejectWithValue }) => {
     try {
-        const response = await axios.get<{ user: User }>(`${import.meta.env.VITE_API_URL}/users/profile`, {
-            headers: {
-                Authorization: `Bearer ${localStorage.getItem('token')}`,
-            },
-        });
+        const response = await axiosInstance.get<{ user: User }>('/users/profile');
         console.log(response.data)
         return response.data;
     }

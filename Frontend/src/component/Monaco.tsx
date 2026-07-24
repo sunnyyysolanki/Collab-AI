@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import { WebContainer, WebContainerProcess } from "@webcontainer/api";
-import axios from "../config/axios";
+import axiosInstance from "../config/axios";
 import { receiveMessage, sendMessage } from "../config/socket";
 import { getIcon } from "./Explorer";
 
@@ -558,7 +558,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
   const saveFileTree = async (ft: FileTree) => {
     try {
-      await axios.put("/project/update-file-tree", {
+      await axiosInstance.put("/project/update-file-tree", {
         projectId: project.id,
         fileTree: ft,
       });

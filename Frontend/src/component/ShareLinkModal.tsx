@@ -1,7 +1,7 @@
 // ShareLinkModal.tsx
 import React, { useState } from "react";
 import { X, Copy } from "lucide-react";
-import axios from "axios";
+import axiosInstance from "../config/axios";
 // import { useSelector } from "react-redux";
 // import { RootState } from "../App/store";
 
@@ -36,15 +36,12 @@ const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
         setError(null);
 
         try {
-            const response = await axios.post<any>(
-                `${import.meta.env.VITE_API_URL}/project/share-link`,
+            const response = await axiosInstance.post<any>(
+                `/project/share-link`,
                 {
                     projectId,
                     accessLevel,
                     expirationDays
-                },
-                {
-                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
                 }
             );
             setShareUrl(response.data.shareUrl);

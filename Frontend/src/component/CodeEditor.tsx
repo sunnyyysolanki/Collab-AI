@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import { WebContainer, WebContainerProcess } from '@webcontainer/api';
-import axios from '../config/axios'
+import axiosInstance from '../config/axios'
 import { receiveMessage, sendMessage } from '../config/socket';
 
 interface FileTree {
@@ -117,7 +117,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
     const saveFileTree = (ft: FileTree) => {
         console.log("first")
-        axios.put('/project/update-file-tree', {
+        axiosInstance.put('/project/update-file-tree', {
             projectId: project.id,
             fileTree: ft,
         }).then((res) => {

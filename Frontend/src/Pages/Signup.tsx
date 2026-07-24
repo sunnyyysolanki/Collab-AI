@@ -2,7 +2,7 @@ import React, { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { UserPlus, Mail, Lock, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axiosInstance from '../config/axios';
 
 import { handleError, handleSuccess } from '../config/toastUtility';
 
@@ -17,7 +17,7 @@ const Signup: React.FC = () => {
         e.preventDefault();
 
         console.log('Register:', { name, email, password });
-        axios.post(`${import.meta.env.VITE_API_URL}/users/register`, {
+        axiosInstance.post('/users/register', {
             name, email, password
         }).then((res) => {
             console.log(res.data);
