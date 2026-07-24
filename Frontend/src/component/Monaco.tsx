@@ -370,6 +370,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   userAccess,
 }) => {
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  // All servers that reported ready (a MERN app has both a backend and a
+  // frontend, each on its own port/URL). Preview can switch between them.
+  const [serverUrls, setServerUrls] = useState<{ port: number; url: string }[]>(
+    []
+  );
+  // User-editable path appended to the selected server URL (e.g. /api/hello),
+  // so backend routes are reachable instead of just showing "Cannot GET /".
+  const [previewPath, setPreviewPath] = useState<string>("/");
   const [runProcess, setRunProcess] = useState<WebContainerProcess | null>(
     null
   );
@@ -591,36 +599,36 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     saveEditorPreferences();
   }, [editorTheme, fontSize, wordWrap, showMinimap]);
 
-  // Find the directory that contains a package.json (root or nested, e.g. the
-  // AI often puts it in a "server"/"backend" subfolder). Returns "" for root,
-  // or a path like "server". Prefers root, then a folder whose name suggests a
-  // backend, otherwise the first folder that has one. null if none exists.
-  const findPackageJsonDir = (
+
+  // Find EVERY directory that holds a package.json (backend + frontend for a
+  // MERN monorepo). Stops descending once one is found in a subtree (so we get
+  // "server" and "client", not their nested node_modules). Backend-ish folders
+  // are ordered first so it installs/starts before the frontend.
+  const findAllPackageJsonDirs = (
     tree: FileTree,
     basePath = ""
-  ): string | null => {
-    if ("package.json" in tree) return basePath;
+  ): string[] => {
+    if ("package.json" in tree) return [basePath];
 
-    const dirEntries = Object.entries(tree).filter(
-      ([, node]) => "directory" in node
-    );
+    const dirs: string[] = [];
+    const entries = Object.entries(tree)
+      .filter(([name, node]) => "directory" in node && name !== "node_modules");
 
-    // Prefer a backend-ish folder so `npm start` runs the server.
-    const preferredOrder = dirEntries.sort(([a], [b]) => {
-      const rank = (n: string) =>
-        /^(server|backend|api)$/i.test(n) ? 0 : 1;
-      return rank(a) - rank(b);
-    });
-
-    for (const [name, node] of preferredOrder) {
+    for (const [name, node] of entries) {
       const childTree = (node as DirectoryContent).directory;
-      const found = findPackageJsonDir(
-        childTree,
-        basePath ? `${basePath}/${name}` : name
+      dirs.push(
+        ...findAllPackageJsonDirs(
+          childTree,
+          basePath ? `${basePath}/${name}` : name
+        )
       );
-      if (found !== null) return found;
     }
-    return null;
+
+    return dirs.sort(
+      (a, b) =>
+        (/(?:^|\/)(server|backend|api)$/i.test(a) ? 0 : 1) -
+        (/(?:^|\/)(server|backend|api)$/i.test(b) ? 0 : 1)
+    );
   };
 
   // Strip ANSI escape/control sequences (colors, cursor moves like [1G, clear
@@ -745,9 +753,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       await webContainer.mount(fileTree);
       addLog("install", "✅ Files mounted successfully");
 
-      // Locate package.json (root OR nested, e.g. inside "server"/"backend").
-      const pkgDir = findPackageJsonDir(fileTree);
-      if (pkgDir === null) {
+      // Find EVERY package.json (a MERN app has backend + frontend). Backend
+      // dirs come first so the API is up before the frontend that calls it.
+      const pkgDirs = findAllPackageJsonDirs(fileTree);
+      if (pkgDirs.length === 0) {
         addLog(
           "install",
           "❌ Error: No package.json found anywhere in the project"
@@ -756,22 +765,47 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         setHasError(true);
         return;
       }
-
-      // Run npm in the directory that actually has package.json.
-      const spawnOpts = pkgDir ? { cwd: pkgDir } : undefined;
-      if (pkgDir) {
-        addLog("install", `📁 Using package.json in "./${pkgDir}"`);
-      }
-
-      // Install dependencies
-      addLog("install", "📦 Installing dependencies...");
-      const installProcess = await webContainer.spawn(
-        "npm",
-        ["install"],
-        spawnOpts
+      addLog(
+        "install",
+        `📁 Found ${pkgDirs.length} app(s): ${pkgDirs
+          .map((d) => `"./${d || "root"}"`)
+          .join(", ")}`
       );
 
-      const installExitPromise = new Promise((resolve, reject) => {
+      // Reset the collected preview URLs. server-ready fires once per port; we
+      // collect ALL of them so the Preview can switch between backend/frontend.
+      setServerUrls([]);
+      webContainer.on("server-ready", (port, url) => {
+        const message = `✨ Server ready on port ${port}: ${url}`;
+        addLog("install", message);
+        addLog("server", message);
+        setServerUrls((prev) => {
+          if (prev.some((s) => s.port === port)) return prev;
+          const next = [...prev, { port, url }];
+          // Show the highest port first-ready by default; frontend dev servers
+          // (3000/5173) are what the user usually wants to see.
+          return next.sort((a, b) => a.port - b.port);
+        });
+        // Point the preview at the first server that comes up; the user can
+        // switch via the dropdown once more appear.
+        setIframeUrl((cur) => cur ?? url);
+        setLogType("server");
+        setActiveTab("preview");
+      });
+
+      // Install + start each app. Install sequentially (npm can be flaky in
+      // parallel in WebContainer); keep each dev server running concurrently.
+      const startedProcesses: any[] = [];
+      for (const dir of pkgDirs) {
+        const opts = dir ? { cwd: dir } : undefined;
+        const label = dir || "root";
+
+        addLog("install", `📦 Installing dependencies for "./${label}"...`);
+        const installProcess = await webContainer.spawn(
+          "npm",
+          ["install"],
+          opts
+        );
         installProcess.output.pipeTo(
           new WritableStream({
             write(chunk) {
@@ -779,44 +813,26 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
             },
           })
         );
+        const code = await installProcess.exit;
+        if (code !== 0) {
+          throw new Error(`npm install failed in "./${label}" (code ${code})`);
+        }
 
-        installProcess.exit.then((code) => {
-          if (code !== 0) {
-            reject(new Error(`npm install failed with code ${code}`));
-          } else {
-            resolve(null);
-          }
-        });
-      });
+        addLog("install", `🚀 Starting "./${label}"...`);
+        addLog("server", `🚀 Starting "./${label}"...`);
+        const devProcess = await webContainer.spawn("npm", ["start"], opts);
+        devProcess.output.pipeTo(
+          new WritableStream({
+            write(chunk) {
+              addLog("server", chunk.toString());
+            },
+          })
+        );
+        startedProcesses.push(devProcess);
+      }
 
-      await installExitPromise;
-
-      // Clear port 3000
-      addLog("install", "🔄 Clearing port 3000...");
-      await webContainer.spawn("npx", ["kill-port", "3000"]);
-
-      // Start development server (in the same package.json directory)
-      addLog("install", "🚀 Starting development server...");
-      addLog("server", "🚀 Starting development server...");
-      const devProcess = await webContainer.spawn("npm", ["start"], spawnOpts);
-      setRunProcess(devProcess);
-
-      devProcess.output.pipeTo(
-        new WritableStream({
-          write(chunk) {
-            addLog("server", chunk.toString());
-          },
-        })
-      );
-
-      webContainer.on("server-ready", (_port, url) => {
-        const message = `✨ Server ready at ${url}`;
-        addLog("install", message);
-        addLog("server", message);
-        setIframeUrl(url);
-        setLogType("server"); // Automatically switch to server logs when ready
-        setActiveTab("preview"); // Automatically show preview when ready
-      });
+      // Track the last dev process so a subsequent Run can kill it.
+      setRunProcess(startedProcesses[startedProcesses.length - 1] ?? null);
     } catch (err) {
       console.error("Run error:", err);
       const errorMsg = `❌ Error: ${err instanceof Error ? err.message : "Unknown error"
@@ -1373,17 +1389,62 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         )}
 
         {activeTab === "preview" && (
-          <div className="h-full w-full bg-gray-900 flex items-center justify-center">
+          <div className="h-full w-full bg-gray-900 flex flex-col overflow-hidden">
             {iframeUrl ? (
-              <iframe
-                src={iframeUrl}
-                className="w-full h-full border-none"
-                title="Preview"
-                ref={containerRef}
-                allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; midi"
-              />
+              <>
+                {/* Preview toolbar: pick which running server + an editable path */}
+                <div className="flex items-center gap-2 p-2 bg-gray-800 shrink-0 text-sm">
+                  {serverUrls.length > 1 && (
+                    <select
+                      value={iframeUrl}
+                      onChange={(e) => setIframeUrl(e.target.value)}
+                      className="bg-gray-700 text-white rounded px-2 py-1 outline-none"
+                      title="Choose which running server to preview"
+                    >
+                      {serverUrls.map((s) => (
+                        <option key={s.port} value={s.url}>
+                          {/^(3000|5173|4173|8080)$/.test(String(s.port))
+                            ? `Frontend (:${s.port})`
+                            : `Server (:${s.port})`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    value={previewPath}
+                    onChange={(e) => setPreviewPath(e.target.value)}
+                    placeholder="/ or /api/hello"
+                    className="flex-1 bg-gray-700 text-white rounded px-2 py-1 outline-none font-mono"
+                    title="Path to load (e.g. /api/hello for a backend route)"
+                  />
+                  <button
+                    onClick={() => {
+                      // Force iframe reload by nudging the src.
+                      const base = iframeUrl.replace(/\/$/, "");
+                      const path = previewPath.startsWith("/")
+                        ? previewPath
+                        : `/${previewPath}`;
+                      if (containerRef.current) {
+                        containerRef.current.src = `${base}${path}`;
+                      }
+                    }}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded"
+                  >
+                    Go
+                  </button>
+                </div>
+                <iframe
+                  src={`${iframeUrl.replace(/\/$/, "")}${
+                    previewPath.startsWith("/") ? previewPath : `/${previewPath}`
+                  }`}
+                  className="flex-1 min-h-0 w-full border-none bg-white"
+                  title="Preview"
+                  ref={containerRef}
+                  allow="accelerometer; camera; encrypted-media; geolocation; gyroscope; microphone; midi"
+                />
+              </>
             ) : (
-              <div className="text-gray-400">
+              <div className="flex items-center justify-center h-full text-gray-400">
                 <p>Run your project to see the preview</p>
               </div>
             )}
