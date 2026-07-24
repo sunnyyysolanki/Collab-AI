@@ -204,10 +204,19 @@ const Project = () => {
 
       if (user && data.sender === "AI") {
         if (data.message) {
-          console.log("bhavik");
-          const message = JSON.parse(data.message);
-          console.log(message.fileTree);
-          if (message.fileTree) {
+          // The AI may return plain text or an error fallback (no fileTree),
+          // so parsing can fail — guard it instead of letting it throw.
+          let message: any;
+          try {
+            message = JSON.parse(data.message);
+          } catch {
+            message = null;
+          }
+
+          // Only touch the file tree / WebContainer when the AI actually
+          // returned one. Mounting an undefined tree crashed with
+          // "Cannot convert undefined or null to object" (Object.keys).
+          if (message?.fileTree) {
             setFileTree(message.fileTree);
 
             try {
@@ -222,9 +231,9 @@ const Project = () => {
             } catch (err) {
               console.error("Error saving file tree:", err);
             }
-          }
 
-          webContainerRef.current?.mount(message.fileTree);
+            webContainerRef.current?.mount(message.fileTree);
+          }
         }
       }
     });
