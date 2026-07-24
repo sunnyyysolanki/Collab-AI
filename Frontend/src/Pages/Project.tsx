@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import axiosInstance from "../config/axios";
 import { initializeSocket, receiveMessage } from "../config/socket";
@@ -13,7 +13,7 @@ import { WebContainer } from "@webcontainer/api";
 import { getWebContainer } from "../config/wbContainer";
 import Explorer from "../component/Explorer";
 import { Link, UserPlus, Users } from "lucide-react";
-import { handleSuccess } from "../config/toastUtility";
+import { handleSuccess, handleError } from "../config/toastUtility";
 
 interface User {
   id: string;
@@ -88,13 +88,43 @@ const Project = () => {
     canWrite: false,
   });
 
+  // Refs that always hold the LATEST state. The socket useEffect below runs only
+  // once (empty deps) so its handlers would otherwise capture stale state from the
+  // first render (empty fileTree, null webContainer). Reading `.current` fixes that.
+  const fileTreeRef = useRef<FileTree>(fileTree);
+  const currentFileRef = useRef<string | null>(currentFile);
+  const openFilesRef = useRef<string[]>(openFiles);
+  const webContainerRef = useRef<WebContainer | null>(webContainer);
+
+  useEffect(() => {
+    fileTreeRef.current = fileTree;
+  }, [fileTree]);
+  useEffect(() => {
+    currentFileRef.current = currentFile;
+  }, [currentFile]);
+  useEffect(() => {
+    openFilesRef.current = openFiles;
+  }, [openFiles]);
+  useEffect(() => {
+    webContainerRef.current = webContainer;
+  }, [webContainer]);
+
   useEffect(() => {
     console.log("project", project);
     if (!webContainer) {
-      getWebContainer().then((container) => {
-        setWebContainer(container);
-        console.log("container started");
-      });
+      getWebContainer()
+        .then((container) => {
+          setWebContainer(container);
+          console.log("container started");
+        })
+        .catch((err) => {
+          // Without this, a boot failure was swallowed and webContainer stayed
+          // null forever -> every Run showed "WebContainer not initialized".
+          console.error("WebContainer failed to boot:", err);
+          handleError(
+            err?.message || "WebContainer failed to initialize. See console."
+          );
+        });
     }
 
     const isDirectory = (node: FileNode): node is DirectoryContent => {
@@ -142,10 +172,11 @@ const Project = () => {
     };
 
     const getNodeAtPath = (path: string): FileNode | null => {
-      if (path === "") return { directory: fileTree as any };
+      const tree = fileTreeRef.current;
+      if (path === "") return { directory: tree as any };
 
       const parts = path.split("/");
-      let current: any = fileTree;
+      let current: any = tree;
 
       for (let i = 0; i < parts.length; i++) {
         if (!current[parts[i]]) return null;
@@ -191,10 +222,9 @@ const Project = () => {
             } catch (err) {
               console.error("Error saving file tree:", err);
             }
-            console.log(fileTree);
           }
 
-          webContainer?.mount(message.fileTree);
+          webContainerRef.current?.mount(message.fileTree);
         }
       }
     });
@@ -202,15 +232,20 @@ const Project = () => {
     receiveMessage(
       "file-renamed",
       (data: { oldPath: string; newPath: string; username: string }) => {
-        const updatedTree = updateNodeAtPath(
-          fileTree,
-          data.oldPath,
-          null,
-          "delete"
-        );
         const node = getNodeAtPath(data.oldPath);
         if (node) {
-          updateNodeAtPath(updatedTree, data.newPath, node, "create");
+          const afterDelete = updateNodeAtPath(
+            fileTreeRef.current,
+            data.oldPath,
+            null,
+            "delete"
+          );
+          const updatedTree = updateNodeAtPath(
+            afterDelete,
+            data.newPath,
+            node,
+            "create"
+          );
           setFileTree(updatedTree);
           const itemType = isDirectory(node) ? "folder" : "file";
           handleSuccess(
@@ -220,15 +255,11 @@ const Project = () => {
           );
 
           // Update currentFile if it matches the oldPath
-          if (currentFile === data.oldPath) {
-            setCurrentFile(data.newPath);
-          }
+          setCurrentFile((prev) => (prev === data.oldPath ? data.newPath : prev));
 
           // Update openFiles if it contains the oldPath
-          setOpenFiles(
-            openFiles.map((file) =>
-              file === data.oldPath ? data.newPath : file
-            )
+          setOpenFiles((prev) =>
+            prev.map((file) => (file === data.oldPath ? data.newPath : file))
           );
         }
       }
@@ -246,7 +277,7 @@ const Project = () => {
             ? { file: { contents: "", language: "plaintext" } }
             : { directory: {} };
         const updatedTree = updateNodeAtPath(
-          fileTree,
+          fileTreeRef.current,
           data.path,
           newNode,
           "create"
@@ -260,7 +291,9 @@ const Project = () => {
         // Update currentFile if the new file is created
         if (data.type === "file") {
           setCurrentFile(data.path);
-          setOpenFiles([...openFiles, data.path]);
+          setOpenFiles((prev) =>
+            prev.includes(data.path) ? prev : [...prev, data.path]
+          );
         }
       }
     );
@@ -268,14 +301,15 @@ const Project = () => {
     receiveMessage(
       "file-deleted",
       (data: { path: string; username: string }) => {
+        // Read the node BEFORE deleting so we can report its type correctly.
+        const node = getNodeAtPath(data.path);
         const updatedTree = updateNodeAtPath(
-          fileTree,
+          fileTreeRef.current,
           data.path,
           null,
           "delete"
         );
         setFileTree(updatedTree);
-        const node = getNodeAtPath(data.path);
         const itemType = node && isDirectory(node) ? "folder" : "file";
         handleSuccess(
           `${itemType.charAt(0).toUpperCase() + itemType.slice(1)
@@ -283,12 +317,10 @@ const Project = () => {
         );
 
         // Update currentFile if it matches the deleted path
-        if (currentFile === data.path) {
-          setCurrentFile(null);
-        }
+        setCurrentFile((prev) => (prev === data.path ? null : prev));
 
         // Update openFiles if it contains the deleted path
-        setOpenFiles(openFiles.filter((file) => file !== data.path));
+        setOpenFiles((prev) => prev.filter((file) => file !== data.path));
       }
     );
     axiosInstance
