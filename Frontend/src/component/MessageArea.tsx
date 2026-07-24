@@ -68,6 +68,7 @@ const MessageArea: React.FC<MessageAreaProps> = ({
   project,
 }) => {
   const [message, setMessage] = useState<string>("");
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
   // const [searchVisible, setSearchVisible] = useState<boolean>(false);
   const [searchTerm, _setSearchTerm] = useState<string>("");
   const [searchResults, setSearchResults] = useState<number[]>([]);
@@ -86,8 +87,11 @@ const MessageArea: React.FC<MessageAreaProps> = ({
   const handleSendMessage = async () => {
     if (message.trim() && user) {
       const newMessage: Message = { sender: user.email, message };
+      const isAiPrompt = /@ai\b/i.test(message);
       setMessages((prevMessages) => [...prevMessages, newMessage]);
       sendMessage("project-message", { message, sender: user.email });
+      // Show a "generating…" indicator until the AI reply (or error) arrives.
+      if (isAiPrompt) setIsAiThinking(true);
       try {
         await axiosInstance.post(
           `/project/add-message`,
@@ -103,11 +107,27 @@ const MessageArea: React.FC<MessageAreaProps> = ({
     }
   };
 
+  // Clear the AI indicator once a reply from the AI arrives, and add a safety
+  // timeout so it never spins forever if the AI errors silently.
+  useEffect(() => {
+    if (!isAiThinking) return;
+    const last = messages[messages.length - 1];
+    if (last && last.sender === "AI") {
+      setIsAiThinking(false);
+    }
+  }, [messages, isAiThinking]);
+
+  useEffect(() => {
+    if (!isAiThinking) return;
+    const t = setTimeout(() => setIsAiThinking(false), 60000); // 60s failsafe
+    return () => clearTimeout(t);
+  }, [isAiThinking]);
+
   useEffect(() => {
     if (messageBoxRef.current) {
       messageBoxRef.current.scrollTop = messageBoxRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isAiThinking]);
 
   useEffect(() => {
     messageRefs.current = messageRefs.current.slice(0, messages.length);
@@ -401,6 +421,21 @@ const MessageArea: React.FC<MessageAreaProps> = ({
             })}
           </div>
         ))}
+
+        {/* "AI is generating…" indicator shown until the AI reply/error lands. */}
+        {isAiThinking && (
+          <div className="flex justify-start mb-2">
+            <div className="message max-w-72 rounded-lg rounded-tl-none p-2 px-3 shadow bg-white text-gray-800 flex items-center gap-2">
+              <span className="text-xs font-medium text-blue-600">AI</span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+              </span>
+              <span className="text-sm text-gray-500">generating…</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* WhatsApp-style input area */}
