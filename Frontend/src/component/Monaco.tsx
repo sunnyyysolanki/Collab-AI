@@ -647,13 +647,31 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
   // Keep at most this many lines per log so a chatty install can never blow up
   // the UI (npm streams thousands of spinner frames).
-  const MAX_LOG_LINES = 500;
+  const MAX_LOG_LINES = 300;
 
-  // True for empty lines and npm's progress-spinner frames (\ | / - / braille),
-  // which arrive as thousands of one-char lines and flood the log.
+  // True for lines that are just noise — spinners, npm funding/audit chatter,
+  // etc. An optional "[label] " prefix is ignored so prefixed lines are caught.
   const isNoiseLine = (line: string): boolean => {
-    const t = line.trim();
-    return t === "" || /^[\\|/\-⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]+$/.test(t);
+    const t = line.replace(/^\[[^\]]+\]\s*/, "").trim();
+    if (t === "") return true;
+    // progress-spinner frames (\ | / - / braille)
+    if (/^[\\|/\-⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]+$/.test(t)) return true;
+    // npm boilerplate that adds nothing useful
+    if (/packages are looking for funding/.test(t)) return true;
+    if (/run `npm fund` for details/.test(t)) return true;
+    if (/^npm warn /i.test(t)) return true;
+    return false;
+  };
+
+  // Clean, high-level status message from the app itself (never filtered).
+  const logStatus = (type: "install" | "server", message: string) => {
+    const setter = type === "install" ? setInstallLogs : setServerLogs;
+    setter((prev) => {
+      const next = [...prev, message];
+      return next.length > MAX_LOG_LINES
+        ? next.slice(next.length - MAX_LOG_LINES)
+        : next;
+    });
   };
 
   const addLog = (type: "install" | "server", message: string) => {
@@ -749,9 +767,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       }
 
       // Mount files
-      addLog("install", "📁 Mounting files...");
+      logStatus("install", "📁 Mounting files…");
       await webContainer.mount(fileTree);
-      addLog("install", "✅ Files mounted successfully");
+      logStatus("install", "✅ Files mounted");
 
       // Find EVERY package.json (a MERN app has backend + frontend). Backend
       // dirs come first so the API is up before the frontend that calls it.
@@ -765,10 +783,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         setHasError(true);
         return;
       }
-      addLog(
+      logStatus(
         "install",
-        `📁 Found ${pkgDirs.length} app(s): ${pkgDirs
-          .map((d) => `"./${d || "root"}"`)
+        `📁 Found ${pkgDirs.length} app${pkgDirs.length > 1 ? "s" : ""}: ${pkgDirs
+          .map((d) => d || "root")
           .join(", ")}`
       );
 
@@ -778,8 +796,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       const isFrontendPort = (p: number) =>
         p === 3000 || p === 5173 || p === 4173 || p === 8080;
       webContainer.on("server-ready", (port, url) => {
-        addLog("install", `✨ Server ready on port ${port}: ${url}`);
-        addLog("server", `✨ Server ready on port ${port}: ${url}`);
+        const kind = isFrontendPort(port) ? "Frontend" : "Backend";
+        logStatus("install", `✨ ${kind} ready on port ${port}`);
+        logStatus("server", `✨ ${kind} ready on port ${port}`);
         setServerUrls((prev) => {
           if (prev.some((s) => s.port === port)) return prev;
           return [...prev, { port, url }].sort((a, b) => a.port - b.port);
@@ -802,46 +821,68 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
       const startApp = async (dir: string) => {
         const opts = dir ? { cwd: dir } : undefined;
-        const label = dir || "root";
+        // Friendly name for status lines (server/backend vs client/frontend).
+        const base = (dir || "root").split("/").pop() || "app";
+        const nice = /^(server|backend|api)$/i.test(base)
+          ? "Backend"
+          : /^(client|frontend|web|app)$/i.test(base)
+            ? "Frontend"
+            : base;
         try {
-          addLog("install", `📦 [${label}] installing dependencies...`);
+          logStatus("install", `📦 ${nice}: installing dependencies…`);
           const installProcess = await webContainer.spawn(
             "npm",
             ["install"],
             opts
           );
+          // Raw install output is noisy (spinners) — send it to the console for
+          // debugging, keep the UI showing only clean status.
           installProcess.output.pipeTo(
             new WritableStream({
               write(chunk) {
-                addLog("install", `[${label}] ${chunk.toString()}`);
+                console.debug(`[${base} install]`, chunk.toString());
               },
             })
           );
           const code = await installProcess.exit;
           if (code !== 0) {
-            addLog("install", `❌ [${label}] npm install failed (code ${code})`);
+            logStatus("install", `❌ ${nice}: install failed (code ${code})`);
             return;
           }
-          addLog("install", `✅ [${label}] install complete`);
+          logStatus("install", `✅ ${nice}: dependencies installed`);
 
-          addLog("install", `🚀 [${label}] starting dev server...`);
-          addLog("server", `🚀 [${label}] starting dev server...`);
-          const devProcess = await webContainer.spawn("npm", ["start"], opts);
+          logStatus("install", `🚀 ${nice}: starting dev server…`);
+          logStatus("server", `🚀 ${nice}: starting dev server…`);
+          // For create-react-app, disable the ESLint overlay + treat warnings as
+          // warnings (not errors) so a harmless lint config issue doesn't block
+          // the preview. CI=false keeps it from exiting; these are no-ops for
+          // non-CRA apps.
+          const devProcess = await webContainer.spawn("npm", ["start"], {
+            ...(opts || {}),
+            env: {
+              DISABLE_ESLINT_PLUGIN: "true",
+              ESLINT_NO_DEV_ERRORS: "true",
+              CI: "false",
+              BROWSER: "none",
+            },
+          });
           devProcess.output.pipeTo(
             new WritableStream({
               write(chunk) {
-                addLog("server", `[${label}] ${chunk.toString()}`);
+                // Dev-server output CAN be useful (errors, "listening on…"),
+                // so surface it — but addLog filters spinners/npm noise.
+                addLog("server", `[${nice}] ${chunk.toString()}`);
               },
             })
           );
           devProcess.exit.then((c) =>
-            addLog("server", `⚠️ [${label}] dev server exited (code ${c})`)
+            logStatus("server", `⚠️ ${nice}: dev server exited (code ${c})`)
           );
           startedProcesses.push(devProcess);
         } catch (e) {
-          addLog(
+          logStatus(
             "install",
-            `❌ [${label}] failed: ${e instanceof Error ? e.message : e}`
+            `❌ ${nice}: failed — ${e instanceof Error ? e.message : e}`
           );
         }
       };
