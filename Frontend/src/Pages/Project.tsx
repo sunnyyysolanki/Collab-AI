@@ -228,14 +228,32 @@ const Project = () => {
 
       if (user && data.sender === "AI") {
         if (data.message) {
-          // The AI may return plain text or an error fallback (no fileTree),
-          // so parsing can fail — guard it instead of letting it throw.
-          let message: any;
-          try {
-            message = JSON.parse(data.message);
-          } catch {
-            message = null;
+          // The AI may return plain text, markdown-fenced JSON, or an error
+          // fallback (no fileTree). Parse defensively so files still get created.
+          let message: any = null;
+          const raw = String(data.message).trim();
+          const tryParse = (s: string): any => {
+            try {
+              return JSON.parse(s);
+            } catch {
+              return null;
+            }
+          };
+          // 1) direct parse  2) strip ```json fences  3) grab the outermost {...}
+          message =
+            tryParse(raw) ||
+            tryParse(raw.replace(/```json/gi, "").replace(/```/g, "").trim());
+          if (!message) {
+            const first = raw.indexOf("{");
+            const last = raw.lastIndexOf("}");
+            if (first !== -1 && last > first) {
+              message = tryParse(raw.slice(first, last + 1));
+            }
           }
+          console.log("[AI] parsed message:", message ? "OK" : "FAILED", {
+            hasFileTree: !!message?.fileTree,
+            rawPreview: raw.slice(0, 120),
+          });
 
           // Only touch the file tree / WebContainer when the AI actually
           // returned one. Mounting an undefined tree crashed with
