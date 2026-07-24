@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { InternalAxiosRequestConfig } from "axios";
 
 const axiosInstance = axios.create({
     baseURL: import.meta.env.VITE_API_URL,
@@ -6,10 +6,10 @@ const axiosInstance = axios.create({
 })
 
 // Attach the latest token on every request (not just at module load)
-axiosInstance.interceptors.request.use((config) => {
+axiosInstance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem("token");
     if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+        config.headers.set("Authorization", `Bearer ${token}`);
     }
     return config;
 })
