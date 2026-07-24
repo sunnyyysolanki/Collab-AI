@@ -126,34 +126,45 @@ const Home = () => {
   };
 
   const languages = [
-    "C",
-    "Clojure",
-    "C#",
-    "Java",
-    "Kotlin",
-    "Objective-C",
-    "PHP",
-    "OCaml",
-    "R",
-    "Shift",
-    "Shell",
-    "Java",
-    "C++",
-    "Ruby",
-    "Go",
+    // Most common / best-supported first
+    "JavaScript",
     "TypeScript",
     "Node",
+    "Python",
+    "Java",
+    "C++",
+    "C#",
+    "C",
+    "Go",
+    "Rust",
+    "Ruby",
+    "PHP",
+    "Swift",
+    "Kotlin",
+    "Shell",
+    "SQL",
+    "HTML/CSS",
   ];
 
   const getLanguageColor = (language: string) => {
     const colorMap: Record<string, { bg: string; text: string }> = {
       JavaScript: { bg: "bg-yellow-50", text: "text-yellow-700" },
       TypeScript: { bg: "bg-blue-50", text: "text-blue-700" },
+      Node: { bg: "bg-green-50", text: "text-green-700" },
       Python: { bg: "bg-green-50", text: "text-green-700" },
       Java: { bg: "bg-orange-50", text: "text-orange-700" },
       "C++": { bg: "bg-purple-50", text: "text-purple-700" },
-      Ruby: { bg: "bg-red-50", text: "text-red-700" },
+      "C#": { bg: "bg-violet-50", text: "text-violet-700" },
+      C: { bg: "bg-slate-50", text: "text-slate-700" },
       Go: { bg: "bg-cyan-50", text: "text-cyan-700" },
+      Rust: { bg: "bg-amber-50", text: "text-amber-700" },
+      Ruby: { bg: "bg-red-50", text: "text-red-700" },
+      PHP: { bg: "bg-indigo-50", text: "text-indigo-700" },
+      Swift: { bg: "bg-orange-50", text: "text-orange-700" },
+      Kotlin: { bg: "bg-purple-50", text: "text-purple-700" },
+      Shell: { bg: "bg-gray-100", text: "text-gray-700" },
+      SQL: { bg: "bg-sky-50", text: "text-sky-700" },
+      "HTML/CSS": { bg: "bg-rose-50", text: "text-rose-700" },
     };
 
     return colorMap[language] || { bg: "bg-gray-50", text: "text-gray-700" };
