@@ -775,61 +775,81 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       // Reset the collected preview URLs. server-ready fires once per port; we
       // collect ALL of them so the Preview can switch between backend/frontend.
       setServerUrls([]);
+      const isFrontendPort = (p: number) =>
+        p === 3000 || p === 5173 || p === 4173 || p === 8080;
       webContainer.on("server-ready", (port, url) => {
-        const message = `✨ Server ready on port ${port}: ${url}`;
-        addLog("install", message);
-        addLog("server", message);
+        addLog("install", `✨ Server ready on port ${port}: ${url}`);
+        addLog("server", `✨ Server ready on port ${port}: ${url}`);
         setServerUrls((prev) => {
           if (prev.some((s) => s.port === port)) return prev;
-          const next = [...prev, { port, url }];
-          // Show the highest port first-ready by default; frontend dev servers
-          // (3000/5173) are what the user usually wants to see.
-          return next.sort((a, b) => a.port - b.port);
+          return [...prev, { port, url }].sort((a, b) => a.port - b.port);
         });
-        // Point the preview at the first server that comes up; the user can
-        // switch via the dropdown once more appear.
-        setIframeUrl((cur) => cur ?? url);
+        // Default the preview to the FRONTEND (has a real UI at "/"); otherwise
+        // show the first server that comes up. The dropdown lets the user switch.
+        if (isFrontendPort(port)) {
+          setIframeUrl(url);
+          setPreviewPath("/");
+        } else {
+          setIframeUrl((cur) => cur ?? url);
+        }
         setLogType("server");
         setActiveTab("preview");
       });
 
-      // Install + start each app. Install sequentially (npm can be flaky in
-      // parallel in WebContainer); keep each dev server running concurrently.
+      // Install + start each app. One app failing must NOT stop the others —
+      // a working backend should stay usable even if the client is slow/broken.
       const startedProcesses: any[] = [];
-      for (const dir of pkgDirs) {
+
+      const startApp = async (dir: string) => {
         const opts = dir ? { cwd: dir } : undefined;
         const label = dir || "root";
+        try {
+          addLog("install", `📦 [${label}] installing dependencies...`);
+          const installProcess = await webContainer.spawn(
+            "npm",
+            ["install"],
+            opts
+          );
+          installProcess.output.pipeTo(
+            new WritableStream({
+              write(chunk) {
+                addLog("install", `[${label}] ${chunk.toString()}`);
+              },
+            })
+          );
+          const code = await installProcess.exit;
+          if (code !== 0) {
+            addLog("install", `❌ [${label}] npm install failed (code ${code})`);
+            return;
+          }
+          addLog("install", `✅ [${label}] install complete`);
 
-        addLog("install", `📦 Installing dependencies for "./${label}"...`);
-        const installProcess = await webContainer.spawn(
-          "npm",
-          ["install"],
-          opts
-        );
-        installProcess.output.pipeTo(
-          new WritableStream({
-            write(chunk) {
-              addLog("install", chunk.toString());
-            },
-          })
-        );
-        const code = await installProcess.exit;
-        if (code !== 0) {
-          throw new Error(`npm install failed in "./${label}" (code ${code})`);
+          addLog("install", `🚀 [${label}] starting dev server...`);
+          addLog("server", `🚀 [${label}] starting dev server...`);
+          const devProcess = await webContainer.spawn("npm", ["start"], opts);
+          devProcess.output.pipeTo(
+            new WritableStream({
+              write(chunk) {
+                addLog("server", `[${label}] ${chunk.toString()}`);
+              },
+            })
+          );
+          devProcess.exit.then((c) =>
+            addLog("server", `⚠️ [${label}] dev server exited (code ${c})`)
+          );
+          startedProcesses.push(devProcess);
+        } catch (e) {
+          addLog(
+            "install",
+            `❌ [${label}] failed: ${e instanceof Error ? e.message : e}`
+          );
         }
+      };
 
-        addLog("install", `🚀 Starting "./${label}"...`);
-        addLog("server", `🚀 Starting "./${label}"...`);
-        const devProcess = await webContainer.spawn("npm", ["start"], opts);
-        devProcess.output.pipeTo(
-          new WritableStream({
-            write(chunk) {
-              addLog("server", chunk.toString());
-            },
-          })
-        );
-        startedProcesses.push(devProcess);
-      }
+      // Run each app's install+start independently and concurrently. The
+      // server-ready listener collects URLs as each one comes up, so the
+      // backend preview works even while the (slow) client is still installing.
+      await Promise.all(pkgDirs.map((dir) => startApp(dir)));
 
       // Track the last dev process so a subsequent Run can kill it.
       setRunProcess(startedProcesses[startedProcesses.length - 1] ?? null);
