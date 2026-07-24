@@ -383,7 +383,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   const [logType, setLogType] = useState<"server" | "install">("install");
   const containerRef = useRef<HTMLIFrameElement>(null);
   const [hasError, setHasError] = useState(false);
-  const [editorKey, setEditorKey] = useState(0); // Used to force re-render the editor
   const [isExecuting, setIsExecuting] = useState(false);
 
   // Input modal states
@@ -406,11 +405,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   const autoSaveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Force editor re-mount when switching to editor tab
-    if (activeTab === "editor" && currentFile) {
-      setEditorKey((prev) => prev + 1);
-    }
-
+    // (Editor now uses `path`/`value`, so no manual remount is needed to switch files.)
     const savedTheme = localStorage.getItem("editorTheme");
     const savedFontSize = localStorage.getItem("editorFontSize");
     const savedWordWrap = localStorage.getItem("editorWordWrap");
@@ -1263,10 +1258,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           <div className="h-full w-full">
             {currentFile ? (
               <Editor
-                key={editorKey}
                 height="100%"
-                defaultLanguage={getFileLanguage(currentFile)}
-                defaultValue={getCurrentFileContents()}
+                path={currentFile}
+                language={getFileLanguage(currentFile)}
+                value={getCurrentFileContents()}
                 theme={editorTheme}
                 onChange={handleInput}
                 onMount={handleEditorDidMount}
