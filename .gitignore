@@ -1,0 +1,21 @@
+# JetBrains IDE (IntelliJ / WebStorm) — machine-specific, not part of the app
+.idea/
+*.iml
+
+# VS Code (keep shared extension recommendations if any)
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets (backends have their own .gitignore too)
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output (also covered per-folder)
+node_modules/
+dist/
+target/
