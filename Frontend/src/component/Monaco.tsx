@@ -382,6 +382,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   );
   const [logType, setLogType] = useState<"server" | "install">("install");
   const containerRef = useRef<HTMLIFrameElement>(null);
+  const logContainerRef = useRef<HTMLPreElement>(null);
+
+  // Auto-scroll the log pane to the newest line as logs stream in.
+  useEffect(() => {
+    const el = logContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [installLogs, serverLogs, logType, activeTab]);
+
   const [hasError, setHasError] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
 
@@ -615,11 +623,27 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     return null;
   };
 
+  // Strip ANSI escape/control sequences (colors, cursor moves like [1G, clear
+  // line [0K) that terminals interpret but render as garbage in the browser.
+  const stripAnsi = (input: string): string =>
+    input
+      // Full ANSI CSI sequences: ESC [ ... final-byte
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+      // WebContainer often emits the CSI body WITHOUT the leading ESC
+      // (e.g. "[1G", "[0K") — strip those bare sequences too.
+      .replace(/\[[0-9;?]*[A-Za-z]/g, "")
+      // Remaining control chars except tab and newline.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+
   const addLog = (type: "install" | "server", message: string) => {
+    const clean = stripAnsi(message);
+    if (!clean.trim()) return; // drop lines that were pure control codes
     if (type === "install") {
-      setInstallLogs((prev) => [...prev, message]);
+      setInstallLogs((prev) => [...prev, clean]);
     } else {
-      setServerLogs((prev) => [...prev, message]);
+      setServerLogs((prev) => [...prev, clean]);
     }
   };
 
@@ -1348,8 +1372,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         )}
 
         {activeTab === "logs" && (
-          <div className="h-full w-full bg-gray-900 text-white p-2 overflow-auto">
-            <div className="flex mb-2 space-x-2">
+          <div className="h-full w-full bg-gray-900 text-white p-2 flex flex-col overflow-hidden">
+            <div className="flex mb-2 space-x-2 shrink-0">
               <button
                 className={`px-2 py-1 rounded text-sm ${logType === "install" ? "bg-blue-600" : "bg-gray-700"
                   }`}
@@ -1365,7 +1389,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
                 Server Logs
               </button>
             </div>
-            <pre className="whitespace-pre-wrap font-mono text-sm">
+            {/* Scrollable terminal-style pane that auto-scrolls to newest line */}
+            <pre
+              ref={logContainerRef}
+              className="flex-1 min-h-0 overflow-auto whitespace-pre-wrap break-words font-mono text-sm bg-black/40 rounded p-2"
+            >
               {(logType === "install" ? installLogs : serverLogs).join("\n")}
             </pre>
           </div>

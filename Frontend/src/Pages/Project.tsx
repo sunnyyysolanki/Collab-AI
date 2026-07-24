@@ -63,6 +63,29 @@ interface FileTree {
   [key: string]: FileNode;
 }
 
+// Deep-merge an incoming (AI-generated) tree INTO the existing tree without
+// mutating either. Existing files/folders are kept; matching paths are
+// overwritten by the incoming tree; directories merge recursively. This stops
+// AI generations from wiping files the user already had.
+const deepMergeTrees = (base: FileTree, incoming: FileTree): FileTree => {
+  const result: FileTree = { ...base };
+  for (const [key, node] of Object.entries(incoming)) {
+    const existing = result[key];
+    if (
+      node && "directory" in node &&
+      existing && "directory" in existing
+    ) {
+      result[key] = {
+        directory: deepMergeTrees(existing.directory, node.directory),
+      };
+    } else {
+      // New file/dir, or type changed -> take the incoming node.
+      result[key] = node;
+    }
+  }
+  return result;
+};
+
 interface UserAccess {
   accessLevel: "admin" | "readwrite" | "readonly";
   isAdmin: boolean;
@@ -218,14 +241,17 @@ const Project = () => {
           // returned one. Mounting an undefined tree crashed with
           // "Cannot convert undefined or null to object" (Object.keys).
           if (message?.fileTree) {
-            setFileTree(message.fileTree);
+            // Merge AI files INTO the existing tree instead of replacing it,
+            // so files the user already had aren't wiped by a new generation.
+            const merged = deepMergeTrees(fileTreeRef.current, message.fileTree);
+            setFileTree(merged);
 
             try {
               const response = await axiosInstance.put(
                 `/project/update-file-tree`,
                 {
                   projectId: project.id,
-                  fileTree: message.fileTree,
+                  fileTree: merged,
                 }
               );
               console.log("response", response.data);
@@ -233,7 +259,7 @@ const Project = () => {
               console.error("Error saving file tree:", err);
             }
 
-            webContainerRef.current?.mount(message.fileTree);
+            webContainerRef.current?.mount(merged);
           }
         }
       }
