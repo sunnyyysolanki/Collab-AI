@@ -2,11 +2,11 @@ package com.collab.backend.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
@@ -24,8 +24,12 @@ public class JwtUtil {
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.expiration-ms}") long expirationMs
     ) {
-        // Node's jsonwebtoken uses the raw secret string bytes for HS256.
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        // Node's jsonwebtoken accepts ANY secret length for HS256. jjwt's
+        // Keys.hmacShaKeyFor() enforces the RFC 7518 >=256-bit minimum and would
+        // reject a short secret. We build the key from the raw UTF-8 bytes via
+        // SecretKeySpec so the HMAC is byte-identical to Node's — keeping tokens
+        // interchangeable between the two backends even with a short SECRET_KEY.
+        this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         this.expirationMs = expirationMs;
     }
 
@@ -37,7 +41,7 @@ public class JwtUtil {
                 .claim("email", email)
                 .issuedAt(now)
                 .expiration(exp)
-                .signWith(key)
+                .signWith(key, Jwts.SIG.HS256) // pin HS256; matches Node default
                 .compact();
     }
 
