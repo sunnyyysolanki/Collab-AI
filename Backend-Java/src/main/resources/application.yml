@@ -1,0 +1,37 @@
+server:
+  # Matches the Node backend: respect host-provided PORT (Render), else 8080.
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: collab-backend
+  data:
+    mongodb:
+      # Same Atlas cluster/database as the Node backend (DATABASE_URL).
+      uri: ${DATABASE_URL:mongodb://localhost:27017/collaborative_coding}
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # Upstash requires TLS (like the Node ioredis tls:{} config).
+      ssl:
+        enabled: ${REDIS_SSL:true}
+
+# App-specific config (read via @Value / @ConfigurationProperties)
+app:
+  jwt:
+    # MUST match the Node backend's SECRET_KEY so tokens are interchangeable.
+    secret: ${SECRET_KEY:change-me-dev-secret-change-me-dev-secret}
+    expiration-ms: 86400000 # 24h, matches jwt expiresIn: '24h'
+  cors:
+    # Comma-separated, same as the Node FRONTEND_URL multi-origin setup.
+    frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  gemini:
+    api-key: ${GOOGLE_AI_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+  socketio:
+    port: ${SOCKETIO_PORT:9092}
+
+logging:
+  level:
+    org.springframework.data.mongodb: INFO
