@@ -253,6 +253,30 @@ const getNestedValue = (
   return getNestedValue((currentNode as DirectoryContent).directory, rest);
 };
 
+// Not every generated app uses `npm start` — Vite apps use `dev`, some use
+// `serve`. Read the app's package.json and pick the right script so Run doesn't
+// fail with "Missing script: start". Returns the args for `npm ...`.
+const resolveStartArgs = (
+  fileTree: FileTree,
+  dir: string
+): { args: string[]; script: string } => {
+  const pathParts = (dir ? `${dir}/package.json` : "package.json").split("/");
+  try {
+    const pkgNode = getNestedValue(fileTree, pathParts);
+    const contents = pkgNode?.file?.contents;
+    if (contents) {
+      const scripts = JSON.parse(contents).scripts || {};
+      if (scripts.start) return { args: ["start"], script: "start" };
+      if (scripts.dev) return { args: ["run", "dev"], script: "dev" };
+      if (scripts.serve) return { args: ["run", "serve"], script: "serve" };
+    }
+  } catch {
+    // fall through to the default below
+  }
+  // Default: try start (npm will report clearly if it's truly missing).
+  return { args: ["start"], script: "start" };
+};
+
 // Function to detect input functions in code
 const detectInputFunctions = (code: string, language: string): string[] => {
   const inputPatterns: {
@@ -615,31 +639,41 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   }, [editorTheme, fontSize, wordWrap, showMinimap]);
 
 
-  // Find EVERY directory that holds a package.json (backend + frontend for a
-  // MERN monorepo). Stops descending once one is found in a subtree (so we get
-  // "server" and "client", not their nested node_modules). Backend-ish folders
-  // are ordered first so it installs/starts before the frontend.
+  // Find EVERY directory that holds a RUNNABLE app package.json (backend +
+  // frontend for a MERN monorepo). We recurse into subfolders FIRST: if a
+  // folder has apps inside it (e.g. a monorepo root with client/ and server/),
+  // we use those and skip the root package.json — otherwise a root package.json
+  // with no "start" script would break Run ("Missing script: start"). Only a
+  // leaf folder (no sub-apps) with a package.json counts as an app itself.
+  // Backend-ish folders are ordered first so they start before the frontend.
   const findAllPackageJsonDirs = (
     tree: FileTree,
     basePath = ""
   ): string[] => {
-    if ("package.json" in tree) return [basePath];
+    const childDirs = Object.entries(tree).filter(
+      ([name, node]) => "directory" in node && name !== "node_modules"
+    );
 
-    const dirs: string[] = [];
-    const entries = Object.entries(tree)
-      .filter(([name, node]) => "directory" in node && name !== "node_modules");
-
-    for (const [name, node] of entries) {
-      const childTree = (node as DirectoryContent).directory;
-      dirs.push(
+    const childApps: string[] = [];
+    for (const [name, node] of childDirs) {
+      childApps.push(
         ...findAllPackageJsonDirs(
-          childTree,
+          (node as DirectoryContent).directory,
           basePath ? `${basePath}/${name}` : name
         )
       );
     }
 
-    return dirs.sort(
+    // Sub-apps found -> it's a container/monorepo root; prefer the sub-apps.
+    // Otherwise this folder is an app if it directly holds a package.json.
+    const result =
+      childApps.length > 0
+        ? childApps
+        : "package.json" in tree
+          ? [basePath]
+          : [];
+
+    return result.sort(
       (a, b) =>
         (/(?:^|\/)(server|backend|api)$/i.test(a) ? 0 : 1) -
         (/(?:^|\/)(server|backend|api)$/i.test(b) ? 0 : 1)
@@ -871,13 +905,17 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           logStatus("install", `✅ ${nice}: dependencies installed`);
 
           setAppStatus(nice, "starting");
-          logStatus("install", `🚀 ${nice}: starting dev server…`);
+          // Pick the correct script (start / dev / serve) from this app's
+          // package.json so Vite-style apps don't fail with "Missing script:
+          // start" and a start-less app falls back gracefully.
+          const { args: startArgs } = resolveStartArgs(fileTree, dir);
+          logStatus("install", `🚀 ${nice}: starting dev server (npm ${startArgs.join(" ")})…`);
           logStatus("server", `🚀 ${nice}: starting dev server…`);
           // For create-react-app, disable the ESLint overlay + treat warnings as
           // warnings (not errors) so a harmless lint config issue doesn't block
           // the preview. CI=false keeps it from exiting; these are no-ops for
           // non-CRA apps.
-          const devProcess = await webContainer.spawn("npm", ["start"], {
+          const devProcess = await webContainer.spawn("npm", startArgs, {
             ...(opts || {}),
             env: {
               DISABLE_ESLINT_PLUGIN: "true",
