@@ -33,36 +33,49 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
-            List<String> authorization = accessor.getNativeHeader("Authorization");
-            List<String> projectIdHeaders = accessor.getNativeHeader("projectId");
+            try {
+                List<String> authorization = accessor.getNativeHeader("Authorization");
+                List<String> projectIdHeaders = accessor.getNativeHeader("projectId");
 
-            if (authorization == null || authorization.isEmpty()) {
-                throw new IllegalArgumentException("No token provided");
+                if (authorization == null || authorization.isEmpty()) {
+                    authorization = accessor.getNativeHeader("authorization");
+                }
+                if (projectIdHeaders == null || projectIdHeaders.isEmpty()) {
+                    projectIdHeaders = accessor.getNativeHeader("projectid");
+                }
+
+                if (authorization == null || authorization.isEmpty()) {
+                    throw new IllegalArgumentException("No token provided");
+                }
+                if (projectIdHeaders == null || projectIdHeaders.isEmpty()) {
+                    throw new IllegalArgumentException("No projectId provided in headers");
+                }
+
+                String token = authorization.get(0);
+                if (token.startsWith("Bearer ")) {
+                    token = token.substring(7);
+                }
+
+                String projectId = projectIdHeaders.get(0);
+                Optional<Project> project = projectRepository.findById(projectId);
+                if (project.isEmpty()) {
+                    throw new IllegalArgumentException("Invalid project ID: " + projectId);
+                }
+
+                Claims claims = jwtUtil.parse(token);
+                String email = claims.get("email", String.class);
+                String userId = claims.get("userId", String.class);
+
+                accessor.getSessionAttributes().put("projectId", projectId);
+                accessor.getSessionAttributes().put("email", email);
+                accessor.getSessionAttributes().put("userId", userId);
+                
+                accessor.setUser((Principal) () -> email);
+            } catch (Exception e) {
+                System.err.println("WebSocket Authentication Failed: " + e.getMessage());
+                e.printStackTrace();
+                throw new org.springframework.messaging.MessageDeliveryException("AUTH_FAILED: " + e.getMessage());
             }
-            if (projectIdHeaders == null || projectIdHeaders.isEmpty()) {
-                throw new IllegalArgumentException("No projectId provided");
-            }
-
-            String token = authorization.get(0);
-            if (token.startsWith("Bearer ")) {
-                token = token.substring(7);
-            }
-
-            String projectId = projectIdHeaders.get(0);
-            Optional<Project> project = projectRepository.findById(projectId);
-            if (project.isEmpty()) {
-                throw new IllegalArgumentException("Invalid project");
-            }
-
-            Claims claims = jwtUtil.parse(token);
-            String email = claims.get("email", String.class);
-            String userId = claims.get("userId", String.class);
-
-            accessor.getSessionAttributes().put("projectId", projectId);
-            accessor.getSessionAttributes().put("email", email);
-            accessor.getSessionAttributes().put("userId", userId);
-            
-            accessor.setUser((Principal) () -> email);
         }
         return message;
     }
