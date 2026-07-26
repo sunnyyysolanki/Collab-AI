@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import axiosInstance from "../config/axios";
-import { initializeSocket, receiveMessage } from "../config/socket";
+import { initializeSocket, receiveMessage, stopReceiving } from "../config/socket";
 import { useSelector } from "react-redux";
 import { RootState } from "../App/store";
 import SlidePanel from "../component/SlidePanel";
@@ -213,7 +213,7 @@ const Project = () => {
       return null;
     };
 
-    const socketInstance = initializeSocket(project.id);
+    initializeSocket(project.id);
 
     const unsubProjectMessage = receiveMessage("project-message", async (data: any) => {
       if (user && data.sender !== user.email) {
@@ -409,8 +409,8 @@ const Project = () => {
       unsubRenamed();
       unsubCreated();
       unsubDeleted();
-      socketInstance?.off("collaboratorAdded");
-      socketInstance?.off("adminOnlyModeToggled");
+      stopReceiving("collaboratorAdded");
+      stopReceiving("adminOnlyModeToggled");
     };
   }, []);
 

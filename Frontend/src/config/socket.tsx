@@ -1,52 +1,124 @@
-import socket, { Socket } from "socket.io-client";
+import { Client, IMessage } from "@stomp/stompjs";
 
-let socketInstance: Socket | null = null;
+let stompClient: Client | null = null;
+let currentProjectId: string | null = null;
+
+// Map of eventName -> Set of callbacks
+const messageHandlers: Map<string, Set<(...args: any[]) => void>> = new Map();
+// Map of eventName -> StompSubscription
+const activeSubscriptions: Map<string, any> = new Map();
 
 export const initializeSocket = (projectId: string) => {
-  // Reuse the existing connection if one is already open for this project,
-  // so we don't create duplicate sockets (and duplicate listeners) on re-mounts.
-  if (socketInstance?.connected) {
-    return socketInstance;
+  if (stompClient?.active && currentProjectId === projectId) {
+    return stompClient;
   }
 
-  socketInstance = socket(import.meta.env.VITE_API_URL, {
-    auth: {
-      token: localStorage.getItem("token"),
+  currentProjectId = projectId;
+  
+  let wsUrl = import.meta.env.VITE_API_URL || "http://localhost:10000";
+  wsUrl = wsUrl.replace(/^http/, "ws") + "/ws";
+  
+  const token = localStorage.getItem("token") || "";
+
+  stompClient = new Client({
+    brokerURL: wsUrl,
+    connectHeaders: {
+      Authorization: `Bearer ${token}`,
+      projectId: projectId,
     },
-    query: {
-      projectId,
+    reconnectDelay: 5000,
+    heartbeatIncoming: 4000,
+    heartbeatOutgoing: 4000,
+    onConnect: () => {
+      console.log("Connected to STOMP via WebSocket");
+      // Re-subscribe to all events that have handlers
+      messageHandlers.forEach((_, eventName) => {
+        subscribeToEvent(eventName);
+      });
     },
+    onStompError: (frame) => {
+      console.error("Broker reported error: " + frame.headers["message"]);
+      console.error("Additional details: " + frame.body);
+    }
   });
 
-  return socketInstance;
+  stompClient.activate();
+  return stompClient;
 };
 
-// Registers a listener and RETURNS an unsubscribe function so callers can clean
-// up in a useEffect return. Without cleanup, listeners stack on every re-render
-// and fire N times (the "so many toasts" bug).
+const subscribeToEvent = (eventName: string) => {
+  if (!stompClient || !stompClient.connected || !currentProjectId) return;
+  
+  // Don't subscribe twice
+  if (activeSubscriptions.has(eventName)) return;
+  
+  const destination = `/topic/project/${currentProjectId}/${eventName}`;
+  const sub = stompClient.subscribe(destination, (message: IMessage) => {
+    let parsedData: any;
+    if (message.body) {
+      try {
+        parsedData = JSON.parse(message.body);
+      } catch (e) {
+        parsedData = message.body;
+      }
+    }
+    
+    // Notify all handlers for this event
+    const handlers = messageHandlers.get(eventName);
+    if (handlers) {
+      handlers.forEach(cb => cb(parsedData));
+    }
+  });
+  
+  activeSubscriptions.set(eventName, sub);
+};
+
 export const receiveMessage = (
   eventName: string,
   cb: (...args: any[]) => void
 ): (() => void) => {
-  if (socketInstance) {
-    socketInstance.on(eventName, cb);
-    return () => {
-      socketInstance?.off(eventName, cb);
-    };
-  } else {
-    console.error("Socket instance is not initialized.");
-    return () => {};
+  if (!messageHandlers.has(eventName)) {
+    messageHandlers.set(eventName, new Set());
   }
+  messageHandlers.get(eventName)!.add(cb);
+
+  if (stompClient && stompClient.connected) {
+    subscribeToEvent(eventName);
+  }
+
+  return () => {
+    const handlers = messageHandlers.get(eventName);
+    if (handlers) {
+      handlers.delete(cb);
+      if (handlers.size === 0) {
+        messageHandlers.delete(eventName);
+        // Unsubscribe from STOMP
+        const sub = activeSubscriptions.get(eventName);
+        if (sub) {
+          sub.unsubscribe();
+          activeSubscriptions.delete(eventName);
+        }
+      }
+    }
+  };
 };
 
 export const stopReceiving = (eventName: string): void => {
-  socketInstance?.off(eventName);
+  messageHandlers.delete(eventName);
+  const sub = activeSubscriptions.get(eventName);
+  if (sub) {
+    sub.unsubscribe();
+    activeSubscriptions.delete(eventName);
+  }
 };
 
 export const sendMessage = (eventName: string, data: any): void => {
-  if (socketInstance) {
-    socketInstance.emit(eventName, data);
+  if (stompClient && stompClient.connected && currentProjectId) {
+    stompClient.publish({
+      destination: `/app/project/${currentProjectId}/${eventName}`,
+      body: JSON.stringify(data),
+    });
   } else {
-    console.error("Socket instance is not initialized.");
+    console.error("STOMP instance is not initialized or connected.");
   }
 };

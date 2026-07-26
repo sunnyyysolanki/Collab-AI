@@ -77,11 +77,10 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Socket.IO server (phase 2) — lets socket.io-client connect unchanged -->
+        <!-- Spring WebSocket (STOMP) -->
         <dependency>
-            <groupId>com.corundumstudio.socketio</groupId>
-            <artifactId>netty-socketio</artifactId>
-            <version>2.0.12</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
         <!-- JGit (phase 2, optional) — replaces simple-git; git routes are disabled in Node -->

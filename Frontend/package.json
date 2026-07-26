@@ -38,7 +38,7 @@
     "remixicon": "^4.6.0",
     "ri": "^0.0.0",
     "simple-git": "^3.27.0",
-    "socket.io-client": "^4.8.1"
+    "@stomp/stompjs": "^7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
