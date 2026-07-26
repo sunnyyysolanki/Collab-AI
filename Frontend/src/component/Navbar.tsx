@@ -2,7 +2,6 @@ import React from "react";
 import { useSelector } from "react-redux";
 import { Link } from "react-router-dom";
 import { RootState } from "../App/store";
-import Logo from '../assets/logo.png'
 
 interface NavbarProps {
   projectName?: string;
@@ -14,8 +13,9 @@ const Navbar: React.FC<NavbarProps> = ({ projectName, onLogout }) => {
   return (
     <nav className="navbar bg-slate-800 text-white px-4 py-2 flex justify-between items-center w-full">
       <div className="navbar-left flex items-center gap-4 pl-10 pt-0 mt-0">
-        <Link to="/" className="text-xl font-bold">
-          <img src={Logo} className="w-auto h-14" />
+        <Link to="/" className="text-xl font-bold flex items-center gap-2">
+          <img src="/favicon-192.png" alt="NexCode Logo" className="w-auto h-10" />
+          <span>NexCode</span>
         </Link>
         {projectName && (
           <span className="text-lg font-semibold">Project: {projectName}</span>
