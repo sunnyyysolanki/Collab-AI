@@ -138,6 +138,12 @@ public class ProjectWebSocketController {
             if (data instanceof Map<?, ?> m && m.get("message") != null) {
                 return m.get("message").toString();
             }
+            if (data instanceof byte[] b) {
+                return mapper.readTree(b).path("message").asText(null);
+            }
+            if (data instanceof String s) {
+                return mapper.readTree(s).path("message").asText(null);
+            }
             var node = mapper.valueToTree(data);
             return node.path("message").asText(null);
         } catch (Exception e) {

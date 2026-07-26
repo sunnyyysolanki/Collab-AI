@@ -116,6 +116,9 @@ export const sendMessage = (eventName: string, data: any): void => {
   if (stompClient && stompClient.connected && currentProjectId) {
     stompClient.publish({
       destination: `/app/project/${currentProjectId}/${eventName}`,
+      headers: {
+        "content-type": "application/json",
+      },
       body: JSON.stringify(data),
     });
   } else {
