@@ -25,8 +25,8 @@ public class Project {
 
     private List<Collaborator> collaborators = new ArrayList<>();
 
-    // Prisma: fileTree Json @default("[]") — arbitrary nested structure.
-    private Object fileTree = new ArrayList<>();
+    // Prisma: fileTree Json @default("{}") — arbitrary nested structure.
+    private Object fileTree = new java.util.LinkedHashMap<>();
 
     private boolean adminOnlyEdit = false;
 

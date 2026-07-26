@@ -690,7 +690,11 @@ public class ProjectService {
         map.put("collaborators", enrichCollaborators
                 ? enrichCollaborators(project.getCollaborators())
                 : project.getCollaborators());
-        map.put("fileTree", project.getFileTree());
+        Object ft = project.getFileTree();
+        if (ft instanceof List && ((List<?>) ft).isEmpty()) {
+            ft = new LinkedHashMap<>();
+        }
+        map.put("fileTree", ft);
         map.put("adminOnlyEdit", project.isAdminOnlyEdit());
         map.put("__v", project.getVersion());
         map.put("messages", project.getMessages());
