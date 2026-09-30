@@ -31,6 +31,15 @@ import { Input } from "../component/ui/Input";
 import bg from "../assets/juyt_6.jpg";
 import Info from "../component/ui/Info";
 import { IoInformationCircleOutline } from "react-icons/io5";
+import {
+  getFieldErrors,
+  handleError,
+  handleSuccess,
+  showApiError,
+} from "../config/toastUtility";
+
+/** Inline messages keyed by form field. */
+type FormErrors = Record<string, string>;
 
 interface User {
   id: string;
@@ -105,6 +114,10 @@ const Home = () => {
   const [editAdminOnlyEdit, setEditAdminOnlyEdit] = useState<boolean>(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [createErrors, setCreateErrors] = useState<FormErrors>({});
+  const [editErrors, setEditErrors] = useState<FormErrors>({});
+  const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   // const isCollaborator = projects?.some(p => p.collaborators.some(c => c.id === user?.id));
   // const canLeaveProject = isCollaborator && projects?.some(project => project.accessLevel !== 'admin');
 
@@ -115,14 +128,90 @@ const Home = () => {
     axiosInstance
       .get<{ projects: Project[] }>("/project/all")
       .then((res) => {
-        console.log(res.data.projects);
         setProjects(res.data.projects);
         setIsLoading(false);
       })
       .catch((error) => {
-        console.error("Failed to fetch projects:", error);
+        showApiError(error, "Could not load your projects.");
+        setProjects([]);
         setIsLoading(false);
       });
+  };
+
+  /**
+   * Client-side mirror of the backend's CreateProjectRequest constraints
+   * (@NotBlank on name / language / description) plus the date rules the
+   * form implies. Returns a field -> message map; empty means valid.
+   */
+  const validateProjectForm = (values: {
+    name: string;
+    description: string;
+    scheduleEnabled: boolean;
+    scheduleDate: string;
+    scheduleTime: string;
+    expiryEnabled: boolean;
+    expiryDate: string;
+    expiryTime: string;
+  }): FormErrors => {
+    const errors: FormErrors = {};
+
+    if (!values.name.trim()) {
+      errors.name = "Project name is required";
+    } else if (values.name.trim().length > 100) {
+      errors.name = "Project name must be 100 characters or fewer";
+    }
+
+    // The backend marks description @NotBlank, so an empty one is rejected.
+    if (!values.description.trim()) {
+      errors.description = "Description is required";
+    } else if (values.description.trim().length > 1000) {
+      errors.description = "Description must be 1000 characters or fewer";
+    }
+
+    let scheduledAt: Date | null = null;
+    if (values.scheduleEnabled) {
+      if (!values.scheduleDate || !values.scheduleTime) {
+        errors.schedule = "Pick both a date and a time, or turn scheduling off";
+      } else {
+        scheduledAt = new Date(`${values.scheduleDate}T${values.scheduleTime}`);
+        if (Number.isNaN(scheduledAt.getTime())) {
+          errors.schedule = "That schedule date and time isn't valid";
+          scheduledAt = null;
+        } else if (scheduledAt.getTime() <= Date.now()) {
+          errors.schedule = "Scheduled time must be in the future";
+        }
+      }
+    }
+
+    if (values.expiryEnabled) {
+      if (!values.expiryDate || !values.expiryTime) {
+        errors.expiry = "Pick both a date and a time, or turn expiry off";
+      } else {
+        const expiresAt = new Date(`${values.expiryDate}T${values.expiryTime}`);
+        if (Number.isNaN(expiresAt.getTime())) {
+          errors.expiry = "That expiry date and time isn't valid";
+        } else if (expiresAt.getTime() <= Date.now()) {
+          errors.expiry = "Expiry time must be in the future";
+        } else if (scheduledAt && expiresAt.getTime() <= scheduledAt.getTime()) {
+          errors.expiry = "Expiry time must be after the scheduled time";
+        }
+      }
+    }
+
+    return errors;
+  };
+
+  const resetCreateForm = () => {
+    setProjectName("");
+    setDescription("");
+    setScheduleEnabled(false);
+    setScheduleDate("");
+    setScheduleTime("");
+    setExpiryEnabled(false);
+    setExpiryDate("");
+    setExpiryTime("");
+    setAdminOnlyEdit(false);
+    setCreateErrors({});
   };
 
   const languages = [
@@ -227,6 +316,25 @@ const Home = () => {
   const createProject = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const errors = validateProjectForm({
+      name: projectName,
+      description,
+      scheduleEnabled,
+      scheduleDate,
+      scheduleTime,
+      expiryEnabled,
+      expiryDate,
+      expiryTime,
+    });
+
+    setCreateErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      // Stay open with the fields marked up - closing the dialog here is what
+      // used to make a failed create look like nothing had happened.
+      handleError(Object.values(errors)[0]);
+      return;
+    }
+
     // Create formatted schedule and expiry times if enabled
     let scheduledTime = null;
     if (scheduleEnabled && scheduleDate && scheduleTime) {
@@ -238,11 +346,12 @@ const Home = () => {
       expiryTimeValue = new Date(`${expiryDate}T${expiryTime}`).toISOString();
     }
 
+    setIsCreating(true);
     try {
       const payload: any = {
-        name: projectName,
+        name: projectName.trim(),
         language: selectedLanguage,
-        description: description,
+        description: description.trim(),
       };
 
       // Add scheduledTime only if it is not null
@@ -274,29 +383,18 @@ const Home = () => {
         prevProjects ? [...prevProjects, res.data.project] : [res.data.project]
       );
 
-      // Reset form fields
-      setProjectName("");
-      setDescription("");
-      setScheduleEnabled(false);
-      setScheduleDate("");
-      setScheduleTime("");
-      setExpiryEnabled(false);
-      setExpiryDate("");
-      setExpiryTime("");
-      setAdminOnlyEdit(false);
+      handleSuccess(`Project "${res.data.project.name}" created.`);
+      resetCreateForm();
       setIsModalOpen(false);
     } catch (error) {
-      setProjectName("");
-      setDescription("");
-      setScheduleEnabled(false);
-      setScheduleDate("");
-      setScheduleTime("");
-      setExpiryEnabled(false);
-      setExpiryDate("");
-      setExpiryTime("");
-      setAdminOnlyEdit(false);
-      setIsModalOpen(false);
-      console.error("Failed to create project:", error);
+      // Keep the dialog open and the user's input intact so they can correct
+      // and resubmit. Surface whatever the server actually said.
+      showApiError(error, "Could not create the project.");
+      // Only overwrite when the server actually labelled the offending fields.
+      const serverFields = getFieldErrors(error);
+      if (Object.keys(serverFields).length > 0) setCreateErrors(serverFields);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -304,6 +402,23 @@ const Home = () => {
     e.preventDefault();
 
     if (!renameProjectId) return;
+
+    const errors = validateProjectForm({
+      name: editProjectName,
+      description: editDescription,
+      scheduleEnabled: editScheduleEnabled,
+      scheduleDate: editScheduleDate,
+      scheduleTime: editScheduleTime,
+      expiryEnabled: editExpiryEnabled,
+      expiryDate: editExpiryDate,
+      expiryTime: editExpiryTime,
+    });
+
+    setEditErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      handleError(Object.values(errors)[0]);
+      return;
+    }
 
     // Create formatted schedule and expiry times if enabled
     let scheduledTime = null;
@@ -320,11 +435,12 @@ const Home = () => {
       ).toISOString();
     }
 
+    setIsUpdating(true);
     try {
       const payload: any = {
-        name: editProjectName,
+        name: editProjectName.trim(),
         language: editLanguage,
-        description: editDescription,
+        description: editDescription.trim(),
       };
 
       // Add scheduledTime only if it is not null
@@ -337,16 +453,15 @@ const Home = () => {
         payload.expiryTime = expiryTimeValue;
       }
 
-      // Add adminOnlyEdit only if it is enabled (optional)
-      if (adminOnlyEdit) {
-        payload.adminOnlyEdit = adminOnlyEdit;
-      }
+      // Sent unconditionally so the toggle can also be switched back off.
+      // (This read the create-form's adminOnlyEdit state before, so edits to
+      //  the setting were silently dropped.)
+      payload.adminOnlyEdit = editAdminOnlyEdit;
 
       const res = await axiosInstance.patch<{ project: Project }>(
         `/project/update/${renameProjectId}`,
         payload
       );
-      console.log(res);
 
       setProjects(
         (prevProjects) =>
@@ -355,11 +470,15 @@ const Home = () => {
           ) || null
       );
 
-      // Reset form fields
+      handleSuccess(`Project "${res.data.project.name}" updated.`);
       resetEditForm();
       setIsRenameModalOpen(false);
     } catch (error) {
-      console.error("Failed to update project:", error);
+      showApiError(error, "Could not update the project.");
+      const serverFields = getFieldErrors(error);
+      if (Object.keys(serverFields).length > 0) setEditErrors(serverFields);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -376,6 +495,7 @@ const Home = () => {
     setEditExpiryTime("");
     setEditAdminOnlyEdit(false);
     setRenameProjectId(null);
+    setEditErrors({});
   };
 
   // Function to populate edit form with project data
@@ -423,11 +543,12 @@ const Home = () => {
           ? prevProjects.filter((project) => project.id !== projectToDelete.id)
           : null
       );
+      handleSuccess(`Project "${projectToDelete.name}" deleted.`);
       setIsDeleteModalOpen(false);
       setProjectToDelete(null);
       setConfirmDeleteName("");
     } catch (error) {
-      console.error("Failed to delete project:", error);
+      showApiError(error, "Could not delete the project.");
     } finally {
       setDeleteLoading(null);
     }
@@ -454,20 +575,15 @@ const Home = () => {
   const handleLeaveProject = async (project: Project) => {
     setLeaveLoading(true);
     try {
-      const response = await axiosInstance.put<any>(
-        "/project/leave-project",
-        {
-          projectId: project.id,
-        }
-      );
+      await axiosInstance.put<any>("/project/leave-project", {
+        projectId: project.id,
+      });
 
-      const data = response.data;
-
-      console.log("Successfully left the project:", data);
+      handleSuccess(`You have left "${project.name}".`);
       fetchProjects();
       navigate("/home");
     } catch (error) {
-      // toast.error(error.message || 'An error occurred while leaving the project');
+      showApiError(error, "Could not leave the project.");
     } finally {
       setLeaveLoading(false);
       setIsLeaveModalOpen(false);
@@ -967,29 +1083,40 @@ const Home = () => {
                 </button>
               </div>
 
-              <form onSubmit={createProject} className="space-y-5">
+              {/* noValidate: validateProjectForm drives the messages so they
+                  match the server's wording instead of browser tooltips. */}
+              <form onSubmit={createProject} className="space-y-5" noValidate>
                 <div>
                   <label
                     className="block text-sm font-medium text-slate-700 mb-1"
                     htmlFor="projectName"
                   >
-                    Project Name
+                    Project Name <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <input
                       id="projectName"
                       type="text"
                       value={projectName}
-                      onChange={(e) => setProjectName(e.target.value)}
+                      onChange={(e) => {
+                        setProjectName(e.target.value);
+                        setCreateErrors((prev) => ({ ...prev, name: "" }));
+                      }}
                       placeholder="Enter project name"
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                      required
+                      aria-invalid={!!createErrors.name}
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${createErrors.name
+                        ? "border-red-400 focus:ring-red-500 focus:border-red-500"
+                        : "border-slate-200 focus:ring-blue-500 focus:border-blue-500"
+                        }`}
                     />
                     <Globe
                       className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
                       size={18}
                     />
                   </div>
+                  {createErrors.name && (
+                    <p className="mt-1 text-sm text-red-600">{createErrors.name}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1035,20 +1162,33 @@ const Home = () => {
                 </div>
 
                 <div>
+                  {/* The backend marks description @NotBlank - the old
+                      "(optional)" label was what led users into a silent 400. */}
                   <label
                     className="block text-sm font-medium text-gray-700 mb-1"
                     htmlFor="description"
                   >
-                    Description{" "}
-                    <span className="text-gray-400 text-xs">(optional)</span>
+                    Description <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     id="description"
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      setCreateErrors((prev) => ({ ...prev, description: "" }));
+                    }}
                     placeholder="Enter project description"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors h-24 resize-none"
+                    aria-invalid={!!createErrors.description}
+                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 transition-colors h-24 resize-none ${createErrors.description
+                      ? "border-red-400 focus:ring-red-500 focus:border-red-500"
+                      : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                      }`}
                   />
+                  {createErrors.description && (
+                    <p className="mt-1 text-sm text-red-600">
+                      {createErrors.description}
+                    </p>
+                  )}
                 </div>
 
                 {/* New fields for scheduling and expiry */}
@@ -1086,20 +1226,35 @@ const Home = () => {
                             type="date"
                             id="scheduleDate"
                             value={scheduleDate}
-                            onChange={(e) => setScheduleDate(e.target.value)}
-                            required
-                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setScheduleDate(e.target.value);
+                              setCreateErrors((prev) => ({ ...prev, schedule: "" }));
+                            }}
+                            className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${createErrors.schedule
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                             min={new Date().toISOString().split("T")[0]}
                           />
                           <input
                             type="time"
                             id="scheduleTime"
                             value={scheduleTime}
-                            required
-                            onChange={(e) => setScheduleTime(e.target.value)}
-                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setScheduleTime(e.target.value);
+                              setCreateErrors((prev) => ({ ...prev, schedule: "" }));
+                            }}
+                            className={`w-36 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${createErrors.schedule
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                           />
                         </div>
+                        {createErrors.schedule && (
+                          <p className="mt-1 text-sm text-red-600">
+                            {createErrors.schedule}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1139,9 +1294,14 @@ const Home = () => {
                             type="date"
                             id="expiryDate"
                             value={expiryDate}
-                            required
-                            onChange={(e) => setExpiryDate(e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setExpiryDate(e.target.value);
+                              setCreateErrors((prev) => ({ ...prev, expiry: "" }));
+                            }}
+                            className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${createErrors.expiry
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                             min={
                               scheduleEnabled
                                 ? scheduleDate
@@ -1152,11 +1312,21 @@ const Home = () => {
                             type="time"
                             id="expiryTime"
                             value={expiryTime}
-                            required
-                            onChange={(e) => setExpiryTime(e.target.value)}
-                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setExpiryTime(e.target.value);
+                              setCreateErrors((prev) => ({ ...prev, expiry: "" }));
+                            }}
+                            className={`w-36 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${createErrors.expiry
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                           />
                         </div>
+                        {createErrors.expiry && (
+                          <p className="mt-1 text-sm text-red-600">
+                            {createErrors.expiry}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1194,26 +1364,23 @@ const Home = () => {
                       type="button"
                       onClick={() => {
                         setIsModalOpen(false);
-                        setProjectName("");
-                        setDescription("");
-                        setScheduleEnabled(false);
-                        setExpiryEnabled(false);
-                        setAdminOnlyEdit(false);
+                        resetCreateForm();
                       }}
                       className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors font-medium"
                     >
                       Cancel
                     </button>
+                    {/* Only disabled while in flight - an incomplete form now
+                        submits and gets told what's missing. */}
                     <button
                       type="submit"
                       className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                      disabled={
-                        !projectName.trim() ||
-                        (scheduleEnabled && !scheduleDate) ||
-                        (expiryEnabled && !expiryDate)
-                      }
+                      disabled={isCreating}
                     >
-                      Create Project
+                      {isCreating && (
+                        <Loader2 size={16} className="animate-spin" />
+                      )}
+                      {isCreating ? "Creating…" : "Create Project"}
                     </button>
                   </div>
                 </div>
@@ -1242,29 +1409,38 @@ const Home = () => {
                 </button>
               </div>
 
-              <form onSubmit={updateProject} className="space-y-5">
+              <form onSubmit={updateProject} className="space-y-5" noValidate>
                 <div>
                   <label
                     className="block text-sm font-medium text-slate-700 mb-1"
                     htmlFor="editProjectName"
                   >
-                    Project Name
+                    Project Name <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <input
                       id="editProjectName"
                       type="text"
                       value={editProjectName}
-                      onChange={(e) => setEditProjectName(e.target.value)}
+                      onChange={(e) => {
+                        setEditProjectName(e.target.value);
+                        setEditErrors((prev) => ({ ...prev, name: "" }));
+                      }}
                       placeholder="Enter project name"
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                      required
+                      aria-invalid={!!editErrors.name}
+                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${editErrors.name
+                        ? "border-red-400 focus:ring-red-500 focus:border-red-500"
+                        : "border-slate-200 focus:ring-blue-500 focus:border-blue-500"
+                        }`}
                     />
                     <Globe
                       className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
                       size={18}
                     />
                   </div>
+                  {editErrors.name && (
+                    <p className="mt-1 text-sm text-red-600">{editErrors.name}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1314,16 +1490,27 @@ const Home = () => {
                     className="block text-sm font-medium text-gray-700 mb-1"
                     htmlFor="editDescription"
                   >
-                    Description{" "}
-                    <span className="text-gray-400 text-xs">(optional)</span>
+                    Description <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     id="editDescription"
                     value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
+                    onChange={(e) => {
+                      setEditDescription(e.target.value);
+                      setEditErrors((prev) => ({ ...prev, description: "" }));
+                    }}
                     placeholder="Enter project description"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors h-24 resize-none"
+                    aria-invalid={!!editErrors.description}
+                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 transition-colors h-24 resize-none ${editErrors.description
+                      ? "border-red-400 focus:ring-red-500 focus:border-red-500"
+                      : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                      }`}
                   />
+                  {editErrors.description && (
+                    <p className="mt-1 text-sm text-red-600">
+                      {editErrors.description}
+                    </p>
+                  )}
                 </div>
 
                 {/* Schedule fields */}
@@ -1358,27 +1545,38 @@ const Home = () => {
                         </label>
                         <div className="flex gap-2">
                           <input
-                            required
                             type="date"
                             id="editScheduleDate"
                             value={editScheduleDate}
-                            onChange={(e) =>
-                              setEditScheduleDate(e.target.value)
-                            }
-                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setEditScheduleDate(e.target.value);
+                              setEditErrors((prev) => ({ ...prev, schedule: "" }));
+                            }}
+                            className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${editErrors.schedule
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                             min={new Date().toISOString().split("T")[0]}
                           />
                           <input
-                            required
                             type="time"
                             id="editScheduleTime"
                             value={editScheduleTime}
-                            onChange={(e) =>
-                              setEditScheduleTime(e.target.value)
-                            }
-                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setEditScheduleTime(e.target.value);
+                              setEditErrors((prev) => ({ ...prev, schedule: "" }));
+                            }}
+                            className={`w-36 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${editErrors.schedule
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                           />
                         </div>
+                        {editErrors.schedule && (
+                          <p className="mt-1 text-sm text-red-600">
+                            {editErrors.schedule}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1416,12 +1614,17 @@ const Home = () => {
                         </label>
                         <div className="flex gap-2">
                           <input
-                            required
                             type="date"
                             id="editExpiryDate"
                             value={editExpiryDate}
-                            onChange={(e) => setEditExpiryDate(e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setEditExpiryDate(e.target.value);
+                              setEditErrors((prev) => ({ ...prev, expiry: "" }));
+                            }}
+                            className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${editErrors.expiry
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                             min={
                               editScheduleEnabled
                                 ? editScheduleDate
@@ -1429,14 +1632,24 @@ const Home = () => {
                             }
                           />
                           <input
-                            required
                             type="time"
                             id="editExpiryTime"
                             value={editExpiryTime}
-                            onChange={(e) => setEditExpiryTime(e.target.value)}
-                            className="w-36 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onChange={(e) => {
+                              setEditExpiryTime(e.target.value);
+                              setEditErrors((prev) => ({ ...prev, expiry: "" }));
+                            }}
+                            className={`w-36 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 ${editErrors.expiry
+                              ? "border-red-400 focus:ring-red-500"
+                              : "border-slate-200 focus:ring-blue-500"
+                              }`}
                           />
                         </div>
+                        {editErrors.expiry && (
+                          <p className="mt-1 text-sm text-red-600">
+                            {editErrors.expiry}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1479,13 +1692,12 @@ const Home = () => {
                     <button
                       type="submit"
                       className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                      disabled={
-                        !editProjectName.trim() ||
-                        (editScheduleEnabled && !editScheduleDate) ||
-                        (editExpiryEnabled && !editExpiryDate)
-                      }
+                      disabled={isUpdating}
                     >
-                      Update Project
+                      {isUpdating && (
+                        <Loader2 size={16} className="animate-spin" />
+                      )}
+                      {isUpdating ? "Updating…" : "Update Project"}
                     </button>
                   </div>
                 </div>

@@ -3,7 +3,7 @@ package com.collab.backend.model;
 import java.time.Instant;
 
 /**
- * Mirrors the Prisma embedded "type Collaborator":
+ * Sub-document holding one project member:
  *   id, accessLevel ("admin" | "readwrite" | "readonly"), addedAt
  * Embedded inside Project (not a separate collection).
  */

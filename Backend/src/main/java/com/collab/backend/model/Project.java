@@ -9,8 +9,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Mirrors the Prisma "Project" model, including embedded collaborators/messages.
- * fileTree is stored as Json in Prisma -> represented as a generic Object here.
+ * Document in the "Project" collection. Collaborators and messages are embedded
+ * sub-documents rather than separate collections. fileTree is an arbitrary nested
+ * structure, so it is typed as a generic Object.
  */
 @Document(collection = "Project")
 public class Project {
@@ -25,12 +26,13 @@ public class Project {
 
     private List<Collaborator> collaborators = new ArrayList<>();
 
-    // Prisma: fileTree Json @default("{}") — arbitrary nested structure.
+    // Arbitrary nested structure, defaulting to an empty map.
     private Object fileTree = new java.util.LinkedHashMap<>();
 
     private boolean adminOnlyEdit = false;
 
-    // Prisma maps this to __v (Mongo version key).
+    // Version counter, incremented on every file-tree save. Stored as __v to match
+    // the field name already present on existing documents.
     @Field("__v")
     private int version = 0;
 

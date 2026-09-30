@@ -24,12 +24,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Ports project.controller.ts + project.routes.ts.
- * Paths and response JSON shapes match the Node backend exactly.
+ * Project endpoints: creation, membership, sharing, file tree and messages.
  *
  * Business errors are thrown as ApiException from the service and translated to
  * the right status/{message} by GlobalExceptionHandler, so no per-endpoint
- * try/catch mapping is needed here (the status codes were baked into the throws).
+ * try/catch mapping is needed here (the status codes are baked into the throws).
  */
 @RestController
 @RequestMapping("/project")
@@ -189,7 +188,7 @@ public class ProjectController {
     public ResponseEntity<?> addMessage(@Valid @RequestBody AddMessageRequest req,
                                         HttpServletRequest request) {
         AuthUser auth = auth(request);
-        // Node: sender = req.user.email, createdAt = new Date().toISOString().
+        // Sender is taken from the authenticated JWT, never from the request body.
         Message newMessage = new Message(auth.email(), req.message());
         Project project = projectService.addMessageToProject(req.projectId(), newMessage);
         return ResponseEntity.ok(Map.of("project", project));

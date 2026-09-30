@@ -7,7 +7,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 
 /**
- * Mirrors the Prisma "ShareLink" model:
+ * Document in the "ShareLink" collection:
  *   id, token (unique), projectId, accessLevel (default "readonly"),
  *   createdAt, expiresAt
  */

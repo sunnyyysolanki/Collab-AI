@@ -1,100 +1,185 @@
-# Collab-AI Backend — Java Spring Boot port
+# Collab-AI Backend
 
-A drop-in replacement for the Node/Express backend, built with Spring Boot 3.3 / Java 21.
-The React frontend is **untouched** — this backend reproduces the same REST endpoints,
-JSON shapes, JWT (interchangeable tokens), and Socket.IO events.
+The Spring Boot service behind Collab-AI, a real-time collaborative coding platform. It owns
+user registration and JWT login, project CRUD, three-tier role-based access control
+(`admin` / `readwrite` / `readonly`), expiring share links, project scheduling and expiry
+windows, an admin-only edit lock, the persisted file tree and chat history, the STOMP
+WebSocket hub that keeps every collaborator's editor and file explorer in sync, and the
+Gemini call that turns a chat prompt into a full project scaffold.
 
-## Stack mapping (Node → Spring Boot)
+## Tech stack
 
-| Node | Spring Boot |
-|------|-------------|
-| express | spring-boot-starter-web |
-| prisma + mongodb | spring-boot-starter-data-mongodb |
-| ioredis | spring-boot-starter-data-redis (Lettuce, TLS for Upstash) |
-| jsonwebtoken | jjwt (HS256, same secret & claims) |
-| bcrypt | spring-security-crypto (hash-compatible) |
-| express-validator | spring-boot-starter-validation |
-| @google/generative-ai | WebClient → Gemini REST API |
-| socket.io | netty-socketio (client connects unchanged) |
-| simple-git | JGit (git routes are disabled in Node; not wired here) |
+| Concern | Choice |
+|---------|--------|
+| Framework / language | Spring Boot 3.3, Java 21 |
+| REST layer | `spring-boot-starter-web` |
+| Persistence | Spring Data MongoDB |
+| Token blacklist / cache | Spring Data Redis (Lettuce, TLS-capable) |
+| Realtime | Spring WebSocket with STOMP over a simple in-memory broker |
+| Request validation | Bean Validation (`spring-boot-starter-validation`) |
+| JWT | jjwt 0.12.6 (HS256) |
+| Password hashing | Spring Security Crypto (`BCryptPasswordEncoder`) |
+| AI codegen | `WebClient` against the Gemini `generateContent` REST endpoint |
+
+## Prerequisites
+
+- **JDK 21**
+- **Maven 3.9+**
+- A MongoDB database and a Redis instance (local or hosted)
 
 ## Run locally
 
-Requires **JDK 21** and **Maven**.
+The module lives in the `Backend` directory.
 
 ```bash
-cd Backend-Java
+cd Backend
 
-# set env (or use a .env-style export / your IDE run config)
-export DATABASE_URL="mongodb+srv://.../collaborative_coding?retryWrites=true&w=majority"
-export SECRET_KEY="<same value as the Node backend>"
-export FRONTEND_URL="http://localhost:5173"
-export REDIS_HOST="...upstash.io"
-export REDIS_PORT="6379"
-export REDIS_PASSWORD="..."
-export GOOGLE_AI_KEY="..."
-export GEMINI_MODEL="gemini-2.5-flash"
-
+# Option A: run from source
 mvn spring-boot:run
+
+# Option B: build and run the jar
+mvn clean package
+java -jar target/backend-1.0.0.jar
 ```
 
-- REST API runs on `PORT` (default 8080).
-- Socket.IO runs on `SOCKETIO_PORT` (default 9092) — see note below.
+Spring Boot does not read `.env` files on its own, so `run-local.sh` / `run-local.ps1` load
+`.env` into the process environment first and then start the app — pass `dev` to go through
+`mvn spring-boot:run` instead of the jar:
 
-## ⚠️ Important: two ports
+```bash
+./run-local.sh          # jar (builds it if target/backend-1.0.0.jar is missing)
+./run-local.sh dev      # mvn spring-boot:run
+```
 
-Unlike the Node backend (Express + Socket.IO share **one** HTTP server), netty-socketio
-runs its **own** server on a separate port. Two options:
+```powershell
+.\run-local.ps1
+.\run-local.ps1 dev
+```
 
-1. **Local dev:** point the frontend socket at `http://localhost:9092` (set `SOCKETIO_PORT`
-   and update `VITE_API_URL` for the socket, or run a small reverse proxy).
-2. **Production:** put both behind a reverse proxy that routes `/socket.io/` to 9092 and
-   everything else to 8080 — OR set `SOCKETIO_PORT` = the same as your platform's port if
-   the platform allows it. On Render, the simplest path is a reverse proxy or a second service.
-
-> This is the one place the "frontend untouched" goal needs care — the frontend's
-> `VITE_API_URL` is used for BOTH REST and socket. If REST and socket are on different
-> ports/hosts, the socket URL must be configured to reach 9092.
+REST and WebSocket both listen on the single `PORT` (default `8080`).
 
 ## Environment variables
 
-| Var | Maps to | Notes |
-|-----|---------|-------|
-| `DATABASE_URL` | `spring.data.mongodb.uri` | **MongoDB** (same Atlas cluster as Node) |
-| `SECRET_KEY` | `app.jwt.secret` | **Must match Node** so JWTs are interchangeable |
-| `FRONTEND_URL` | `app.cors.frontend-url` | Comma-separated multi-origin, like Node |
-| `REDIS_HOST/PORT/PASSWORD` | `spring.data.redis.*` | TLS on by default (`REDIS_SSL`) for Upstash |
-| `GOOGLE_AI_KEY` | `app.gemini.api-key` | Gemini key |
-| `GEMINI_MODEL` | `app.gemini.model` | default `gemini-2.5-flash` |
-| `PORT` | `server.port` | host-injected (Render) |
-| `SOCKETIO_PORT` | `app.socketio.port` | default 9092 |
+| Var | Property | Default | Notes |
+|-----|----------|---------|-------|
+| `PORT` | `server.port` | `8080` | Honours a host-injected port |
+| `DATABASE_URL` | `spring.data.mongodb.uri` | `mongodb://localhost:27017/collaborative_coding` | Full MongoDB connection string |
+| `SECRET_KEY` | `app.jwt.secret` | dev placeholder | HS256 signing key; tokens expire after 24h |
+| `FRONTEND_URL` | `app.cors.frontend-url` | `http://localhost:5173` | Comma-separated for multiple allowed origins; trailing slashes are stripped |
+| `REDIS_HOST` | `spring.data.redis.host` | `localhost` | |
+| `REDIS_PORT` | `spring.data.redis.port` | `6379` | |
+| `REDIS_PASSWORD` | `spring.data.redis.password` | *(empty)* | |
+| `REDIS_SSL` | `spring.data.redis.ssl.enabled` | `true` | Set to `false` for a plaintext local Redis; hosted Redis usually requires TLS |
+| `GOOGLE_AI_KEY` | `app.gemini.api-key` | *(empty)* | Google AI Studio API key |
+| `GEMINI_MODEL` | `app.gemini.model` | `gemini-2.5-flash` | |
 
-## Deploy (Render, Docker)
+## Authentication
 
-A `Dockerfile` is included (multi-stage, Java 21). On Render: create a **Web Service**,
-set env vars above, and it builds/runs the image. Expose the REST port; handle the
-socket port per the note above.
+`JwtAuthFilter` runs ahead of the controllers and reads the token from the `Authorization`
+header as a `Bearer` value, or from a `token` cookie. Every endpoint requires a valid token
+except `POST /users/register`, `POST /users/login`, and `GET /`; CORS preflight (`OPTIONS`) passes
+through untouched. Logout writes the token into Redis with a 24-hour TTL and the filter
+rejects any token present in that blacklist, which is what makes logout effective before the
+JWT's own expiry.
 
-## Endpoints (all match the Node backend)
+## REST endpoints
 
-- **/users**: `POST /register`, `POST /login`, `GET /profile`, `GET /logout`, `GET /all`
-- **/project**: `create`, `all`, `add-user`, `leave-project`, `update-collaborator-access`,
-  `get-project/{id}`, `update-file-tree`, `delete/{id}`, `update/{id}`, `share-link`,
-  `join/{token}`, `remove-collaborator`, `toggle-admin-only-edit/{id}`, `add-message`
-- **/ai**: `GET /get-result?prompt=...`
-- **Socket.IO events**: project-message (+@AI), project-code, fileTree-update,
-  file-created, file-renamed, file-deleted, files-imported, user-cursor-move,
-  user-highlight, disconnect
+### `RootController`
 
-## ⚠️ Not yet verified
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/` | Health check, returns `hello` |
 
-This port was written without a local JDK to compile against. Before deploying:
+### `UserController` — `/users`
 
-```bash
-mvn clean compile   # fix any import/type errors
-mvn clean package    # produce the jar
-```
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/users/register` | Create an account, returns `{ user: { id, email } }` |
+| POST | `/users/login` | Returns `{ message, user: { id, email, projects }, token }` |
+| GET | `/users/profile` | Current user from the token |
+| GET | `/users/logout` | Blacklists the token in Redis |
+| GET | `/users/all` | All users except the caller, for the collaborator picker |
 
-Things most likely to need a tweak on first compile: netty-socketio API method names
-(`getRoomOperations`, `AuthorizationResult`, `HandshakeData.getAuthToken`) can vary
-slightly by version (pinned to 2.0.12), and WebClient error message parsing for retries.
+### `ProjectController` — `/project`
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/project/create` | Create a project (name, language, description, optional scheduled/expiry times) → 201 |
+| GET | `/project/all` | Projects the caller belongs to |
+| GET | `/project/get-project/{projectId}` | One project plus the caller's `userAccess` level |
+| PUT | `/project/add-user` | Add collaborators at a given access level |
+| PUT | `/project/leave-project` | Remove the caller from the project |
+| PATCH | `/project/update-collaborator-access` | Change one collaborator's access level |
+| POST | `/project/remove-collaborator` | Remove a collaborator |
+| PUT | `/project/update-file-tree` | Persist the workspace file tree |
+| PATCH | `/project/update/{projectId}` | Update name, language, description, schedule window, admin-only-edit |
+| PATCH | `/project/toggle-admin-only-edit/{projectId}` | Flip the admin-only edit lock |
+| DELETE | `/project/delete/{projectId}` | Delete the project |
+| POST | `/project/share-link` | Mint a share token at an access level, expiring in `expirationDays` (default 7) → 201 |
+| GET | `/project/join/{token}` | Redeem a share link and join the project |
+| POST | `/project/add-message` | Append a chat message (sender taken from the token) |
+
+### `AiController` — `/ai`
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/ai/get-result?prompt=…` | Gemini completion, returned as `{ result }` |
+
+`AiService` applies a system instruction that constrains the model to a
+`{ text, fileTree, buildCommand, startCommand }` JSON shape, strips the Markdown code fences
+the model wraps that JSON in, and retries `429` / `503 overloaded` responses with exponential
+backoff so a transient provider hiccup does not surface as a failed generation.
+
+## WebSocket API
+
+STOMP over WebSocket, on the **same server port** as the REST API.
+
+- **Endpoint:** `/ws`
+- **Broker prefix:** `/topic` (simple in-memory broker)
+- **Application destination prefix:** `/app`
+
+The `/ws` endpoint allows all origin patterns. It is not covered by the `FRONTEND_URL` CORS
+rules, which apply to the MVC request mappings; the connection is instead gated by the token
+check below.
+
+### Handshake
+
+`WebSocketAuthInterceptor` authenticates the STOMP **CONNECT** frame rather than the HTTP
+upgrade. The client must send two native headers:
+
+- `Authorization: Bearer <jwt>` (`authorization` is also accepted)
+- `projectId: <project id>` (`projectid` is also accepted)
+
+The interceptor verifies the project exists, parses the JWT, and stashes `projectId`, `email`,
+and `userId` in the STOMP session attributes — every handler reads the acting user from there
+rather than trusting the message payload. A failed CONNECT is rejected with
+`MessageDeliveryException("AUTH_FAILED: …")`.
+
+### Destinations
+
+Clients publish to `/app/project/{projectId}/{event}`; the server broadcasts to
+`/topic/project/{projectId}/{event}`.
+
+| Client publishes to `…/{event}` | Server broadcasts to | Notes |
+|---|---|---|
+| `project-message` | `project-message` | A message containing `@AI` / `@ai` is stripped of the mention, sent to Gemini, and the reply is broadcast as `{ message, sender: "AI" }` instead of the original |
+| `project-code` | `project-code` | Editor content sync |
+| `fileTree-update` | `fileTree-update` | Whole-tree sync |
+| `file-created` | `file-created` | Payload re-broadcast with `username` |
+| `file-renamed` | `file-renamed` | Payload re-broadcast with `username` |
+| `file-deleted` | `file-deleted` | Payload re-broadcast with `username` |
+| `files-imported` | `files-imported` | `{ importedItems, username }` |
+| `user-cursor-move` | `update-cursor` | `{ userId, username, position }`; ignored when `position` is absent |
+| `user-highlight` | `update-highlight` | `{ userId, username, range }`; ignored when `range` is absent |
+
+On session disconnect the server broadcasts `remove-cursor` with `{ userId, username }` to the
+project topic so the remaining clients drop that user's cursor. `userId` falls back to the
+STOMP session id when the token carries no `userId` claim, which keeps cursor add/remove pairs
+matched.
+
+## Deploy
+
+A multi-stage `Dockerfile` is included: a `maven:3.9-eclipse-temurin-21` stage resolves
+dependencies (cached on `pom.xml` alone) and packages the jar, then an `eclipse-temurin:21-jre`
+runtime stage runs it. The container reads a host-injected `PORT`; REST and WebSocket traffic
+share that one port, so a single web service is all that needs to be provisioned.

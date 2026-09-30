@@ -20,7 +20,7 @@ Get-Content ".env" | ForEach-Object {
     }
 }
 
-Write-Host "PORT=$env:PORT  SOCKETIO_PORT=$env:SOCKETIO_PORT  MODEL=$env:GEMINI_MODEL"
+Write-Host "PORT=$env:PORT  MODEL=$env:GEMINI_MODEL"
 
 if ($args[0] -eq "dev") {
     mvn spring-boot:run

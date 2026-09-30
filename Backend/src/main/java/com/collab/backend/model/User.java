@@ -8,8 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Mirrors the Prisma "user" model:
- *   id (@map _id), email (unique), password, projects String[]
+ * Document in the "user" collection:
+ *   id (stored as _id), email (unique), password, projects (project id list)
  */
 @Document(collection = "user")
 public class User {

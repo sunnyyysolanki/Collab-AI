@@ -3,10 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { LogIn, Mail, Lock } from 'lucide-react';
 import axiosInstance from '../config/axios';
-import { useDispatch } from 'react-redux';
-import { AppDispatch } from '../App/store';
-import { validateToken } from '../redux/auth.slice';
-import { handleError, handleSuccess } from '../config/toastUtility';
+
+import { handleSuccess, showApiError } from '../config/toastUtility';
 
 interface User {
     id: string;
@@ -22,9 +20,10 @@ const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
-    const dispatch = useDispatch<AppDispatch>();
     const state = location.state as LocationState;
 
     useEffect(() => {
@@ -40,17 +39,44 @@ const Login = () => {
         }
     }, [navigate]);
 
+    /** Mirrors the backend's @Email / @Size(min = 3) rules on the login DTO. */
+    const validate = (): boolean => {
+        const errors: { email?: string; password?: string } = {};
+
+        if (!email.trim()) {
+            errors.email = 'Email address is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            errors.email = 'Enter a valid email address';
+        }
+
+        if (!password) {
+            errors.password = 'Password is required';
+        } else if (password.length < 3) {
+            errors.password = 'Password must be at least 3 characters long';
+        }
+
+        setFieldErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
-        try {
-            const res = await axiosInstance.post<{ user: User; token: string }>(`/users/login`, { email, password });
-            const { token } = res.data;
-            handleSuccess("Login Successful");
+        if (!validate()) {
+            setError('Please fix the highlighted fields before continuing.');
+            return;
+        }
 
+        setIsSubmitting(true);
+        try {
+            const res = await axiosInstance.post<{ user: User; token: string }>(`/users/login`, {
+                email: email.trim(),
+                password,
+            });
+            const { token } = res.data;
             localStorage.setItem('token', token);
-            await dispatch(validateToken());
+            handleSuccess("Login Successful");
 
             // Check if there's a pending join token in session storage
             const pendingJoinToken = sessionStorage.getItem('pendingJoinToken');
@@ -62,9 +88,12 @@ const Login = () => {
             } else {
                 navigate('/home');
             }
-        } catch (err: any) {
-            console.error('Login Error:', err.response?.data || err.message);
-            handleError(err.response?.data?.message || err.response.data.errors[0].msg);
+        } catch (err) {
+            // Toast + inline banner. showApiError resolves both the
+            // { message } and { errors: [{ msg }] } shapes the backend sends.
+            setError(showApiError(err, 'Login failed. Please check your details and try again.'));
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -87,7 +116,9 @@ const Login = () => {
                     )}
                 </div>
 
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+                {/* noValidate: our own messages replace the browser tooltips
+                    so validation looks the same as the server's. */}
+                <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
                     {error && (
                         <div className="p-3 bg-red-900 rounded-md text-red-200 text-sm">
                             {error}
@@ -106,13 +137,22 @@ const Login = () => {
                                 <input
                                     id="email"
                                     type="email"
-                                    required
                                     value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="block w-full pl-10 pr-3 py-2 border border-gray-700 rounded-md bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                    onChange={(e) => {
+                                        setEmail(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                                    }}
+                                    aria-invalid={!!fieldErrors.email}
+                                    className={`block w-full pl-10 pr-3 py-2 border rounded-md bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent ${fieldErrors.email
+                                        ? 'border-red-500 focus:ring-red-500'
+                                        : 'border-gray-700 focus:ring-indigo-500'
+                                        }`}
                                     placeholder="you@example.com"
                                 />
                             </div>
+                            {fieldErrors.email && (
+                                <p className="mt-1 text-sm text-red-400">{fieldErrors.email}</p>
+                            )}
                         </div>
 
                         <div>
@@ -126,13 +166,22 @@ const Login = () => {
                                 <input
                                     id="password"
                                     type="password"
-                                    required
                                     value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="block w-full pl-10 pr-3 py-2 border border-gray-700 rounded-md bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                    onChange={(e) => {
+                                        setPassword(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                                    }}
+                                    aria-invalid={!!fieldErrors.password}
+                                    className={`block w-full pl-10 pr-3 py-2 border rounded-md bg-gray-900 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent ${fieldErrors.password
+                                        ? 'border-red-500 focus:ring-red-500'
+                                        : 'border-gray-700 focus:ring-indigo-500'
+                                        }`}
                                     placeholder="••••••••"
                                 />
                             </div>
+                            {fieldErrors.password && (
+                                <p className="mt-1 text-sm text-red-400">{fieldErrors.password}</p>
+                            )}
                         </div>
                     </div>
 
@@ -158,9 +207,10 @@ const Login = () => {
 
                     <button
                         type="submit"
-                        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 focus:ring-offset-gray-900"
+                        disabled={isSubmitting}
+                        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 focus:ring-offset-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                        Sign in
+                        {isSubmitting ? 'Signing in…' : 'Sign in'}
                     </button>
 
                     <p className="text-center text-sm text-gray-400">

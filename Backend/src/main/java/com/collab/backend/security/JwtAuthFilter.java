@@ -17,13 +17,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Replaces the Node authUser middleware.
+ * Authenticates incoming requests before they reach the controllers.
  * - Reads token from the Authorization header (Bearer) or the "token" cookie
  * - Rejects blacklisted (logged-out) tokens via Redis
  * - Verifies the JWT and attaches an AuthUser to the request
  *
- * Applied only to protected paths (see SecurityPaths). Public paths
- * (/users/register, /users/login, /project/join is protected in Node) pass through.
+ * Applied only to protected paths. The public paths listed in PUBLIC_PATHS
+ * (/users/register, /users/login and the root path) pass through untouched.
  */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -32,7 +32,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Paths that do NOT require auth (match the Node routes without authUser).
+    // Paths that do NOT require auth.
     private static final Set<String> PUBLIC_PATHS = Set.of(
             "/users/register",
             "/users/login",
@@ -62,23 +62,48 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        try {
-            // Redis blacklist check (logout stores the token with a TTL).
-            Boolean blacklisted = redis.hasKey(token);
-            if (Boolean.TRUE.equals(blacklisted)) {
-                unauthorized(response, "redis Unauthorized user");
-                return;
-            }
+        if (isBlacklisted(token)) {
+            unauthorized(response, "redis Unauthorized user");
+            return;
+        }
 
+        AuthUser user;
+        try {
             Claims claims = jwtUtil.parse(token);
-            AuthUser user = new AuthUser(
+            user = new AuthUser(
                     claims.get("userId", String.class),
                     claims.get("email", String.class)
             );
-            request.setAttribute(AuthUser.REQUEST_ATTRIBUTE, user);
-            chain.doFilter(request, response);
         } catch (Exception e) {
+            // A genuinely bad token: bad signature, expired or malformed.
+            // Logged because a silent 401 here is near-impossible to diagnose.
+            logger.debug("Rejected JWT: " + e.getMessage());
             unauthorized(response, "Please authenticate");
+            return;
+        }
+
+        request.setAttribute(AuthUser.REQUEST_ATTRIBUTE, user);
+        // Outside the try: a failure further down the chain is the handler's
+        // problem, not an authentication failure.
+        chain.doFilter(request, response);
+    }
+
+    /**
+     * Logout stores the token in Redis with a TTL; this checks for it.
+     *
+     * Best-effort on purpose. If Redis is unreachable we log and let the
+     * request through rather than locking every user out of the app - the JWT
+     * signature check above still has to pass. The trade-off is that while
+     * Redis is down an already-logged-out token stays usable until it expires.
+     * Previously any Redis error was caught as "Please authenticate", so a
+     * stopped Redis made every authenticated request look like a bad token.
+     */
+    private boolean isBlacklisted(String token) {
+        try {
+            return Boolean.TRUE.equals(redis.hasKey(token));
+        } catch (Exception e) {
+            logger.warn("Redis unavailable - skipping token blacklist check: " + e.getMessage());
+            return false;
         }
     }
 

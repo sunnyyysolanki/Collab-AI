@@ -20,9 +20,7 @@ import { PiFileTsFill } from "react-icons/pi";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { CgExport, CgImport } from "react-icons/cg";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import { handleSuccess, handleError } from "../config/toastUtility";
+import { handleSuccess, handleError, showApiError } from "../config/toastUtility";
 import { useSelector } from "react-redux";
 import { RootState } from "../App/store";
 import { MdKeyboardArrowDown, MdKeyboardArrowRight } from "react-icons/md";
@@ -365,7 +363,7 @@ const Explorer: React.FC<ExplorerProps> = ({
     // Handle export functionality
     const handleExport = (): void => {
         if (Object.keys(fileTree).length === 0) {
-            alert("No files or folders to export.");
+            handleError("There are no files or folders to export.");
             return;
         }
 
@@ -378,9 +376,10 @@ const Explorer: React.FC<ExplorerProps> = ({
             .generateAsync({ type: "blob" })
             .then((content) => {
                 saveAs(content, `${project.name}.zip`);
+                handleSuccess(`Exported ${project.name}.zip`);
             })
             .catch((error) => {
-                console.error("Error generating ZIP file:", error);
+                showApiError(error, "Could not build the export archive.");
             });
     };
 
@@ -584,8 +583,7 @@ const Explorer: React.FC<ExplorerProps> = ({
                 }
             }
         } catch (error) {
-            handleError("Failed to create new item.");
-            console.error("Failed to create new item:", error);
+            showApiError(error, "Failed to create new item.");
         }
 
         setNewItemPath(null);
@@ -713,8 +711,7 @@ const Explorer: React.FC<ExplorerProps> = ({
                 } renamed from "${oldPath}" to "${newFullPath}" by ${user?.email}.`
             );
         } catch (error) {
-            handleError("Failed to rename item.");
-            console.error("Failed to rename item:", error);
+            showApiError(error, "Failed to rename item.");
         }
 
         setEditingPath(null);
@@ -775,8 +772,7 @@ const Explorer: React.FC<ExplorerProps> = ({
                 } deleted at "${path}" by ${user?.email}.`
             );
         } catch (error) {
-            handleError("Failed to delete item.");
-            console.error("Failed to delete item:", error);
+            showApiError(error, "Failed to delete item.");
         }
 
         if (selectedFolder === path) {
@@ -853,11 +849,10 @@ const Explorer: React.FC<ExplorerProps> = ({
                 projectId: project.id,
                 fileTree: ft,
             })
-            .then((res) => {
-                console.log(res);
-            })
             .catch((err) => {
-                console.error(err);
+                // A failed save used to be console-only, so the user kept
+                // working against changes that were never persisted.
+                showApiError(err, "Your changes could not be saved.");
             });
     };
 
@@ -987,8 +982,7 @@ const Explorer: React.FC<ExplorerProps> = ({
                 } moved from "${oldPath}" to "${newFullPath}" by ${user?.email}.`
             );
         } catch (error) {
-            handleError("Failed to move item.");
-            console.error("Failed to move item:", error);
+            showApiError(error, "Failed to move item.");
         }
     };
 
@@ -1204,7 +1198,8 @@ const Explorer: React.FC<ExplorerProps> = ({
             onDragOver={handleRootDragOver}
             className="explorer h-full max-w-64 min-w-64 bg-slate-100 p-2 border-r border-slate-200"
         >
-            <ToastContainer />
+            {/* The toast viewport is mounted once in main.tsx - a second one
+                here rendered every toast twice. */}
             <div className="flex justify-between items-center mb-4 px-2">
                 <h3 className="font-bold text-slate-700">Explorer</h3>
                 <div className="flex space-x-2">

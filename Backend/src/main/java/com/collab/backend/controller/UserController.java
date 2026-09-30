@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Ports user.controller.ts + user.routes.ts.
- * Response JSON shapes match the Node backend exactly (frontend depends on them).
+ * User endpoints: register, login, profile, logout and listing all users.
+ * The response JSON shapes below are what the frontend consumes.
  */
 @RestController
 @RequestMapping("/users")

@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axiosInstance from '../config/axios';
+import { getErrorMessage } from '../config/toastUtility';
 
 interface User {
     id: string;
@@ -24,11 +25,13 @@ const initialState: UserState = {
 export const validateToken = createAsyncThunk('/user/validateToken', async (_, { rejectWithValue }) => {
     try {
         const response = await axiosInstance.get<{ user: User }>('/users/profile');
-        console.log(response.data)
         return response.data;
     }
-    catch (error: any) {
-        return rejectWithValue(error.response?.data?.message || 'Sign in failed. Please try again.');
+    catch (error) {
+        // No toast here: an expired token on first load is expected and the
+        // route guard redirects to login. The message is kept in state.error
+        // so a screen can show it if it wants to.
+        return rejectWithValue(getErrorMessage(error, 'Your session has ended. Please log in again.'));
     }
 
 });

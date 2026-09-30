@@ -9,6 +9,6 @@ import java.util.Optional;
 public interface UserRepository extends MongoRepository<User, String> {
     Optional<User> findByEmail(String email);
 
-    // Equivalent to Prisma findMany({ where: { id: { not: userId } } })
+    // All users except the given id -> { _id: { $ne: id } }
     List<User> findByIdNot(String id);
 }

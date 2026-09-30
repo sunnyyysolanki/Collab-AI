@@ -1,7 +1,8 @@
 package com.collab.backend.exception;
 
 /**
- * Mirrors the Node CustomError (message + HTTP status).
+ * Runtime exception carrying a message and an HTTP status code, translated
+ * into an error response by GlobalExceptionHandler.
  */
 public class ApiException extends RuntimeException {
     private final int statusCode;

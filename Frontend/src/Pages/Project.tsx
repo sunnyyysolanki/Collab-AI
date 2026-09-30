@@ -14,7 +14,7 @@ import { getWebContainer } from "../config/wbContainer";
 import Explorer from "../component/Explorer";
 import ErrorBoundary from "../component/ErrorBoundary";
 import { Link, UserPlus, Users } from "lucide-react";
-import { handleSuccess, handleError } from "../config/toastUtility";
+import { handleSuccess, handleError, showApiError } from "../config/toastUtility";
 
 interface User {
   id: string;
@@ -62,6 +62,95 @@ type FileNode = FileContent | DirectoryContent;
 interface FileTree {
   [key: string]: FileNode;
 }
+
+// Does every value in this object look like a tree node? Used to tell a real
+// child named "contents" apart from the bogus wrapper level described below.
+const isNodeMap = (v: any): boolean =>
+  !!v &&
+  typeof v === "object" &&
+  !Array.isArray(v) &&
+  Object.values(v).every(
+    (c: any) => c && typeof c === "object" && ("file" in c || "directory" in c)
+  );
+
+// WebContainer requires file contents to be a string. The AI sometimes emits
+// package.json as a real JSON object instead of a JSON string — stringify it
+// rather than letting it degrade to the literal text "[object Object]".
+const toContents = (v: any): string => {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v, null, 2);
+    } catch {
+      return "";
+    }
+  }
+  return String(v);
+};
+
+// Insert a node at a nested path, creating/reusing directories along the way.
+// Needed because a key may arrive as a whole path ("src/components/App.js")
+// instead of a single segment.
+const insertAt = (tree: FileTree, parts: string[], node: FileNode): void => {
+  const [head, ...rest] = parts;
+  if (rest.length === 0) {
+    tree[head] = node;
+    return;
+  }
+  const existing = tree[head];
+  const dir: FileTree =
+    existing && "directory" in existing ? existing.directory : {};
+  if (!existing || !("directory" in existing)) tree[head] = { directory: dir };
+  insertAt(dir, rest, node);
+};
+
+// Repair the loose shapes the AI (and any project saved before this fix) can
+// produce, so the tree always matches WebContainer's FileSystemTree:
+//
+//   1. { directory: { contents: {...} } }  -> children wrapped one level too deep.
+//      This is what threw "Cannot convert undefined or null to object" in mount().
+//   2. { "src/App.js": ... }               -> a path used as a key. WebContainer
+//      keys are single segments, and Monaco splits currentFile on "/", so a flat
+//      path key silently desyncs the editor from the tree.
+//   3. { file: "code" }                    -> contents shorthand, loses the file.
+//   4. non-string contents                 -> rejected by mount().
+//   5. nodes that are neither file nor directory -> dropped.
+const normalizeTree = (tree: any): FileTree => {
+  const out: FileTree = {};
+  if (!tree || typeof tree !== "object" || Array.isArray(tree)) return out;
+
+  for (const [rawKey, node] of Object.entries<any>(tree)) {
+    if (!node || typeof node !== "object") continue;
+
+    let normalized: FileNode | null = null;
+
+    if ("directory" in node) {
+      const dir = node.directory;
+      const wrapped =
+        dir &&
+        typeof dir === "object" &&
+        Object.keys(dir).length === 1 &&
+        "contents" in dir &&
+        isNodeMap(dir.contents);
+      normalized = { directory: normalizeTree(wrapped ? dir.contents : dir) };
+    } else if ("file" in node) {
+      const f = node.file;
+      normalized = {
+        file: {
+          ...(f && typeof f === "object" ? f : {}),
+          contents: toContents(typeof f === "string" ? f : f?.contents),
+        },
+      };
+    }
+    if (!normalized) continue;
+
+    const parts = String(rawKey).split("/").filter(Boolean);
+    if (parts.length === 0) continue;
+    insertAt(out, parts, normalized);
+  }
+  return out;
+};
 
 // Deep-merge an incoming (AI-generated) tree INTO the existing tree without
 // mutating either. Existing files/folders are kept; matching paths are
@@ -261,20 +350,22 @@ const Project = () => {
           if (message?.fileTree) {
             // Merge AI files INTO the existing tree instead of replacing it,
             // so files the user already had aren't wiped by a new generation.
-            const merged = deepMergeTrees(fileTreeRef.current, message.fileTree);
+            const merged = deepMergeTrees(
+              fileTreeRef.current,
+              normalizeTree(message.fileTree)
+            );
             setFileTree(merged);
 
             try {
-              const response = await axiosInstance.put(
+              await axiosInstance.put(
                 `/project/update-file-tree`,
                 {
                   projectId: project.id,
                   fileTree: merged,
                 }
               );
-              console.log("response", response.data);
             } catch (err) {
-              console.error("Error saving file tree:", err);
+              showApiError(err, "The AI's file changes could not be saved.");
             }
 
             webContainerRef.current?.mount(merged);
@@ -385,7 +476,8 @@ const Project = () => {
       .then((res) => {
         console.log(res.data);
         setCollaborators(res.data.project.collaborators);
-        setFileTree(res.data.project.fileTree);
+        // Repair projects already saved with the bad directory shape.
+        setFileTree(normalizeTree(res.data.project.fileTree));
         setUserAccess(res.data.userAccess);
         setMessages(res.data.project.messages);
         // Set user access level
@@ -396,12 +488,12 @@ const Project = () => {
         //     canWrite: ['admin', 'readwrite'].includes(accessLevel)
         // });
       })
-      .catch((err) => console.error("Error fetching project data:", err));
+      .catch((err) => showApiError(err, "Could not load this project."));
 
     axiosInstance
       .get<User[]>(`/users/all`)
       .then((res) => setAllUsers(res.data))
-      .catch((err) => console.error("Error fetching users:", err));
+      .catch((err) => showApiError(err, "Could not load the user list."));
 
     return () => {
       // Clean up event listeners so they don't stack up (which multiplies toasts).
@@ -435,10 +527,11 @@ const Project = () => {
 
       setCollaborators(response.data.project.collaborators);
       setUserAccess(response.data.userAccess);
-      console.log(["p"], collaborators);
       setIsModalOpen(false);
     } catch (error) {
-      console.error("Error adding collaborators:", error);
+      showApiError(error, "Could not add those collaborators.");
+      // Rethrow so CollaboratorModal skips its success toast and socket emit.
+      throw error;
     }
   };
 
@@ -456,7 +549,8 @@ const Project = () => {
         prevCollaborators.filter((collab) => collab.id !== userId)
       );
     } catch (error) {
-      console.error("Error removing collaborator:", error);
+      showApiError(error, "Could not remove that collaborator.");
+      throw error;
     }
   };
 
@@ -465,7 +559,6 @@ const Project = () => {
     newAccessLevel: string
   ) => {
     try {
-      console.log("newAccesslevel", newAccessLevel);
       const response = await axiosInstance.patch<any>(
         `/project/update-collaborator-access`,
         {
@@ -475,19 +568,10 @@ const Project = () => {
         }
       );
 
-      console.log(response.data);
       setCollaborators(response.data.project.collaborators);
-
-      // Update the collaborator's access level locally
-      // setCollaborators(prevCollaborators =>
-      //     prevCollaborators.map(collab =>
-      //         collab.id === userId
-      //             ? { ...collab, accessLevel: newAccessLevel as 'admin' | 'readwrite' | 'readonly' }
-      //             : collab
-      //     )
-      // );
     } catch (error) {
-      console.error("Error updating collaborator access:", error);
+      showApiError(error, "Could not change that collaborator's access.");
+      throw error;
     }
   };
 
@@ -512,11 +596,9 @@ const Project = () => {
       }
 
       setProject(response.data.project);
-
-      // Optionally, update the project state in your component
-      // setProject(data.project);
     } catch (error) {
-      console.error("Error toggling adminOnlyEdit setting:", error);
+      showApiError(error, "Could not change the admin-only edit setting.");
+      throw error;
     }
   };
 

@@ -17,7 +17,7 @@ set -a
 source .env
 set +a
 
-echo "🔧 PORT=$PORT  SOCKETIO_PORT=$SOCKETIO_PORT  MODEL=$GEMINI_MODEL"
+echo "🔧 PORT=$PORT  MODEL=$GEMINI_MODEL"
 
 if [ "${1:-}" = "dev" ]; then
   mvn spring-boot:run

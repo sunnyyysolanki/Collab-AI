@@ -11,10 +11,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Ports ai.service.ts. Calls the Gemini generateContent REST endpoint directly
- * via WebClient (the @google/generative-ai SDK just wraps this HTTP call).
- * Mirrors: system instruction, ```json``` stripping, 429/503 retry with backoff,
- * and the graceful "high demand" fallback so the frontend never breaks.
+ * Calls the Gemini generateContent REST endpoint directly via WebClient.
+ * Applies the system instruction, strips ```json``` markdown fences from the
+ * reply, retries 429/503 with exponential backoff, and on failure degrades
+ * gracefully so the frontend always receives parseable JSON.
  */
 @Service
 public class AiService {
@@ -36,22 +36,31 @@ public class AiService {
         this.model = model;
     }
 
+    /** Generates with the default (Node/WebContainer) rules. */
     public String generateResult(String prompt) {
+        return generateResult(prompt, null);
+    }
+
+    /**
+     * @param language the project's language, so the model targets the runtime
+     *                 the frontend will actually execute the result with.
+     */
+    public String generateResult(String prompt, String language) {
         final int maxRetries = 3;
         int retryCount = 0;
         String lastError = null;
 
         while (retryCount < maxRetries) {
             try {
-                String raw = callGemini(prompt);
+                String raw = callGemini(prompt, language);
 
-                // Strip ```json / ``` fences, matching the Node cleanup.
+                // Strip ```json / ``` fences.
                 String cleaned = raw
                         .replace("```json", "")
                         .replace("```", "")
                         .trim();
 
-                // (Node only warns if not valid JSON; it still returns the text.)
+                // Returned as-is, even if the model did not produce valid JSON.
                 return cleaned;
             } catch (Exception e) {
                 lastError = e.getMessage() == null ? "Unknown API error" : e.getMessage();
@@ -75,7 +84,7 @@ public class AiService {
             }
         }
 
-        // Graceful fallback (same JSON shape as the Node backend).
+        // Graceful fallback — always valid JSON so the frontend can parse it.
         System.err.println("Error in AI service: " + lastError);
         try {
             return mapper.writeValueAsString(Map.of(
@@ -87,12 +96,12 @@ public class AiService {
         }
     }
 
-    private String callGemini(String prompt) {
+    private String callGemini(String prompt, String language) {
         String url = BASE_URL + "/" + model + ":generateContent?key=" + apiKey;
 
         Map<String, Object> body = Map.of(
                 "systemInstruction", Map.of(
-                        "parts", List.of(Map.of("text", GeminiSystemPrompt.INSTRUCTION))
+                        "parts", List.of(Map.of("text", GeminiSystemPrompt.forLanguage(language)))
                 ),
                 "contents", List.of(Map.of(
                         "parts", List.of(Map.of("text", prompt))

@@ -11,8 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 /**
- * Produces/verifies JWTs that are interchangeable with the Node backend's
- * jsonwebtoken output: HS256, claims { userId, email }, 24h expiry, same secret.
+ * Produces and verifies HS256 JWTs carrying { userId, email } claims with a
+ * 24h expiry.
  */
 @Component
 public class JwtUtil {
@@ -24,11 +24,9 @@ public class JwtUtil {
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.expiration-ms}") long expirationMs
     ) {
-        // Node's jsonwebtoken accepts ANY secret length for HS256. jjwt's
-        // Keys.hmacShaKeyFor() enforces the RFC 7518 >=256-bit minimum and would
-        // reject a short secret. We build the key from the raw UTF-8 bytes via
-        // SecretKeySpec so the HMAC is byte-identical to Node's — keeping tokens
-        // interchangeable between the two backends even with a short SECRET_KEY.
+        // jjwt's Keys.hmacShaKeyFor() enforces the RFC 7518 >=256-bit minimum and
+        // would reject a shorter configured secret. We build the key directly from
+        // the raw UTF-8 bytes via SecretKeySpec so a short SECRET_KEY still works.
         this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         this.expirationMs = expirationMs;
     }
@@ -41,7 +39,7 @@ public class JwtUtil {
                 .claim("email", email)
                 .issuedAt(now)
                 .expiration(exp)
-                .signWith(key, Jwts.SIG.HS256) // pin HS256; matches Node default
+                .signWith(key, Jwts.SIG.HS256) // pin HS256
                 .compact();
     }
 

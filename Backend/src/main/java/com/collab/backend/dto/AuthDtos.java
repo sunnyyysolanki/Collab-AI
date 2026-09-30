@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Size;
 
 /**
  * Request bodies for /users/register and /users/login.
- * Validation mirrors express-validator: valid email, password min length 3.
+ * Validation: valid email format, password minimum length 3.
  */
 public class AuthDtos {
 

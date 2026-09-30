@@ -10,15 +10,13 @@ import java.util.List;
 
 /**
  * Request bodies for the /project endpoints.
- * Validation mirrors the express-validator rules in project.routes.ts.
- * (Optional fields with only a type rule in express-validator are left
- *  un-annotated here since absence is allowed and the type is enforced by
- *  Jackson binding.)
+ * (Optional fields are left un-annotated since absence is allowed and the
+ *  type is enforced by Jackson binding.)
  */
 public class ProjectDtos {
 
     // POST /project/create
-    //   body('name'|'language'|'description').isString()  (all required)
+    //   name / language / description required strings
     //   scheduledTime / expiryTime optional ISO 8601 strings
     public record CreateProjectRequest(
             @NotBlank(message = "Name is required")
@@ -89,7 +87,7 @@ public class ProjectDtos {
     ) {}
 
     // PATCH /project/update/{projectId}
-    //   all fields optional; type-only rules in express-validator.
+    //   all fields optional.
     public record UpdateProjectRequest(
             String name,
             String language,

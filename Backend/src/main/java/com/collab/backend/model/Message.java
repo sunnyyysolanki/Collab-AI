@@ -3,8 +3,9 @@ package com.collab.backend.model;
 import java.time.Instant;
 
 /**
- * Mirrors the Prisma embedded "type Message":
+ * Sub-document holding one chat message:
  *   sender, message, createdAt
+ * Embedded inside Project (not a separate collection).
  */
 public class Message {
 

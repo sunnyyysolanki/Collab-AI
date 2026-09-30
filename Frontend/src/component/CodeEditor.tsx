@@ -3,6 +3,7 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import axiosInstance from '../config/axios'
+import { showApiError } from '../config/toastUtility';
 import { receiveMessage, sendMessage } from '../config/socket';
 
 interface FileTree {
@@ -116,16 +117,12 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     };
 
     const saveFileTree = (ft: FileTree) => {
-        console.log("first")
         axiosInstance.put('/project/update-file-tree', {
             projectId: project.id,
             fileTree: ft,
-        }).then((res) => {
-            console.log(res)
         }).catch((err) => {
-            console.log(err)
+            showApiError(err, "Your changes could not be saved.");
         })
-
     }
 
     const truncateFilename = (filename: string, maxLength: number = 20) => {

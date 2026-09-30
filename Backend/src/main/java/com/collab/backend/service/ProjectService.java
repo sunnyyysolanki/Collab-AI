@@ -25,12 +25,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Ports project.service.ts faithfully.
+ * Project CRUD, collaborator access control, share links and messages.
  *
  * Collaborator enrichment (attaching each collaborator's email from the user
  * collection) is done by returning projects as LinkedHashMap structures, since
  * the Collaborator model has no email field and must not be modified. The map
- * shape mirrors the JSON the Node service returns (frontend depends on it).
+ * shape is what the frontend depends on.
  */
 @Service
 public class ProjectService {
@@ -111,12 +111,12 @@ public class ProjectService {
                                  String description,
                                  Instant scheduledTime,
                                  Instant expiryTime) {
-        // Node createProjectController catches ALL errors as 500 (message passed
-        // through), so createProject failures carry status 500 to match.
+        // Every failure in the create path surfaces to the client as a 500 with
+        // the message passed through.
         if (name == null || name.isEmpty()) throw new ApiException("Project name is required", 500);
         if (userId == null || userId.isEmpty()) throw new ApiException("User ID is required", 500);
 
-        // Check for existing project with the same name (Prisma findFirst on name).
+        // Check for existing project with the same name.
         Query q = new Query(Criteria.where("name").is(name));
         Project existing = mongoTemplate.findOne(q, Project.class);
         if (existing != null) {
@@ -139,7 +139,7 @@ public class ProjectService {
 
         Project saved = projectRepository.save(project);
 
-        // Add project to user's projects (Prisma push).
+        // Add project to user's projects.
         User user = userRepository.findById(userId).orElse(null);
         if (user != null) {
             user.getProjects().add(saved.getId());
@@ -154,14 +154,15 @@ public class ProjectService {
     // ------------------------------------------------------------------
 
     public List<Map<String, Object>> getAllProjectsByUserId(String userId) {
-        // Node getAllProjectController catches ALL errors as 500 (message passed
-        // through), so these carry status 500 to match.
+        // Every failure in this path surfaces to the client as a 500 with the
+        // message passed through.
         if (userId == null || userId.isEmpty()) throw new ApiException("User ID is required", 500);
 
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) throw new ApiException("User not found", 500);
 
-        // Prisma: creator == userId OR collaborators.some(id == userId)
+        // Matches projects where the user is the creator OR appears in the
+        // embedded collaborators array.
         Criteria criteria = new Criteria().orOperator(
                 Criteria.where("creator").is(userId),
                 Criteria.where("collaborators.id").is(userId)
@@ -244,7 +245,7 @@ public class ProjectService {
             throw new ApiException("Users already added to project: " + String.join(", ", alreadyAddedUsers), 400);
         }
 
-        // Mirrors the redundant re-fetch + adminOnlyEdit guard in Node.
+        // adminOnlyEdit locks collaborator changes down to admins.
         Project project = projectRepository.findById(projectId).orElse(null);
         if (project == null) throw new ApiException("User not Belong to this project ", 400);
 
@@ -296,7 +297,7 @@ public class ProjectService {
                     .filter(c -> "admin".equals(c.getAccessLevel()))
                     .count();
             if (adminCount <= 1) {
-                // Node controller maps messages containing "only admin" to 403.
+                // Returned to the client as 403.
                 throw new ApiException(
                         "Cannot leave the project as you are the only admin. Transfer admin rights first.", 403);
             }
@@ -493,17 +494,17 @@ public class ProjectService {
         Project project = projectRepository.findById(projectId).orElse(null);
         if (project == null) throw new ApiException("Project not found", 400);
 
-        // Prisma assigns each field directly (undefined name/language/description
-        // in the Node update means "no change"; here absent -> keep existing).
+        // A null name/language/description means "no change": the existing value
+        // is kept.
         if (name != null) project.setName(name);
         if (language != null) project.setLanguage(language);
         if (description != null) project.setDescription(description);
 
-        // Node: scheduledTime/expiryTime === undefined ? null : value.
+        // An absent or blank scheduledTime/expiryTime clears the field to null.
         project.setScheduledTime(parseInstantOrNull(scheduledTime));
         project.setExpiryTime(parseInstantOrNull(expiryTime));
 
-        // Node: adminOnlyEdit === undefined ? false : value.
+        // An absent adminOnlyEdit defaults to false.
         project.setAdminOnlyEdit(adminOnlyEdit != null && adminOnlyEdit);
 
         return projectRepository.save(project);
@@ -525,7 +526,7 @@ public class ProjectService {
 
         projectRepository.deleteById(projectId);
 
-        // Remove project from all users' projects (Prisma: projects has projectId).
+        // Remove project from all users' projects.
         Query q = new Query(Criteria.where("projects").in(List.of(projectId)));
         List<User> users = mongoTemplate.find(q, User.class);
         for (User user : users) {
@@ -618,9 +619,9 @@ public class ProjectService {
             throw new ApiException("Project not found", 400);
         }
 
-        // Faithful to Node: it checks collab.userId (a field collaborators do NOT
-        // have), so isCollaborator is effectively always false there; the real
-        // guard is creator == userId. Replicated exactly.
+        // The re-join guard below only blocks the project creator. Known
+        // limitation: an existing collaborator re-using a link is not blocked
+        // here.
         boolean isCollaborator = false;
 
         if (userId.equals(project.getCreator()) || isCollaborator) {
@@ -645,7 +646,7 @@ public class ProjectService {
     // ------------------------------------------------------------------
 
     public Project toggleAdminOnlyEdit(String projectId, String userId) {
-        // Node toggleAdminOnlyEditController catches ALL errors as 500.
+        // Every failure in this path surfaces to the client as a 500.
         if (!isAdmin(userId, projectId)) {
             throw new ApiException("Only admins can toggle this setting", 500);
         }
@@ -662,7 +663,7 @@ public class ProjectService {
     // ------------------------------------------------------------------
 
     public Project addMessageToProject(String projectId, Message newMessage) {
-        // Node addMessageController catches ALL errors as 500.
+        // Every failure in this path surfaces to the client as a 500.
         Project project = projectRepository.findById(projectId).orElse(null);
         if (project == null) throw new ApiException("Project not found", 500);
 
@@ -676,9 +677,8 @@ public class ProjectService {
 
     /**
      * Serializes a Project to a LinkedHashMap, optionally enriching each
-     * collaborator with its user's email (Node attaches id + email to every
-     * collaborator before returning). Keeps the field order/shape the frontend
-     * expects.
+     * collaborator with its user's email. Keeps the field order/shape the
+     * frontend expects.
      */
     private Map<String, Object> projectToMap(Project project, boolean enrichCollaborators) {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -703,7 +703,7 @@ public class ProjectService {
         return map;
     }
 
-    /** Builds collaborator maps with id/email/accessLevel/addedAt, mirroring the Node enrichment. */
+    /** Builds collaborator maps with id/email/accessLevel/addedAt. */
     private List<Map<String, Object>> enrichCollaborators(List<Collaborator> collaborators) {
         List<Map<String, Object>> enriched = new ArrayList<>();
         for (Collaborator c : collaborators) {
@@ -718,7 +718,7 @@ public class ProjectService {
         return enriched;
     }
 
-    /** Parses an ISO-8601 string into an Instant; null/blank -> null (Node treats undefined -> null). */
+    /** Parses an ISO-8601 string into an Instant; null/blank -> null. */
     private Instant parseInstantOrNull(String iso) {
         if (iso == null || iso.isBlank()) return null;
         return Instant.parse(iso);

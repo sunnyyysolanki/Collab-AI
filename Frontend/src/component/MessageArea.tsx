@@ -6,6 +6,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { sendMessage } from "../config/socket";
 import axiosInstance from "../config/axios";
+import { showApiError } from "../config/toastUtility";
 import whatsappBg from "../assets/Screenshot 2025-04-13 at 12.20.47╬ôC╠º┬╗AM.png"; // You'll need to add this asset
 
 interface Message {
@@ -101,7 +102,10 @@ const MessageArea: React.FC<MessageAreaProps> = ({
           }
         );
       } catch (error) {
-        console.error("Error sending message:", error);
+        // The optimistic bubble is already on screen, so say plainly that it
+        // did not reach the server rather than failing silently.
+        showApiError(error, "Your message could not be sent.");
+        if (isAiPrompt) setIsAiThinking(false);
       }
       setMessage("");
     }
@@ -342,8 +346,8 @@ const MessageArea: React.FC<MessageAreaProps> = ({
             </p>
             <div className="space-y-1.5 text-sm">
               {[
-                "@ai give me a MERN project with a hello endpoint",
-                "@ai create an Express REST API for todos",
+                "@ai give me a full-stack project with a hello endpoint",
+                "@ai create a REST API for todos",
                 "@ai add a dark mode toggle to the React app",
               ].map((ex) => (
                 <button

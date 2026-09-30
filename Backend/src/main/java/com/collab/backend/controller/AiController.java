@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * Ports ai.controller.ts + ai.routes.ts.
+ * AI endpoint backed by Gemini.
  * GET /ai/get-result?prompt=... -> { result: "<gemini json/text>" }
  */
 @RestController

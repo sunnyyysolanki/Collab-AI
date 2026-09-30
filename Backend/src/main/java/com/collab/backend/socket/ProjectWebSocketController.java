@@ -1,5 +1,6 @@
 package com.collab.backend.socket;
 
+import com.collab.backend.repository.ProjectRepository;
 import com.collab.backend.service.AiService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.event.EventListener;
@@ -20,11 +21,14 @@ public class ProjectWebSocketController {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final AiService aiService;
+    private final ProjectRepository projectRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ProjectWebSocketController(SimpMessagingTemplate messagingTemplate, AiService aiService) {
+    public ProjectWebSocketController(SimpMessagingTemplate messagingTemplate, AiService aiService,
+                                      ProjectRepository projectRepository) {
         this.messagingTemplate = messagingTemplate;
         this.aiService = aiService;
+        this.projectRepository = projectRepository;
     }
 
     @MessageMapping("/project/{projectId}/project-message")
@@ -34,7 +38,9 @@ public class ProjectWebSocketController {
 
         if (aiMentioned) {
             String prompt = message.replace("@AI", "").replace("@ai", "").trim();
-            String result = aiService.generateResult(prompt);
+            // The frontend runs each language with a different engine (WebContainer /
+            // iframe / Judge0), so the model has to target the right one.
+            String result = aiService.generateResult(prompt, projectLanguage(projectId));
             Map<String, Object> aiResponse = new HashMap<>();
             aiResponse.put("message", result);
             aiResponse.put("sender", "AI");
@@ -130,6 +136,21 @@ public class ProjectWebSocketController {
             response.put("userId", userId);
             response.put("username", email == null ? "" : email);
             messagingTemplate.convertAndSend("/topic/project/" + projectId + "/remove-cursor", response);
+        }
+    }
+
+    /**
+     * The project's language, or null when it can't be resolved — AiService then
+     * falls back to the Node rules rather than failing the whole AI request.
+     */
+    private String projectLanguage(String projectId) {
+        try {
+            return projectRepository.findById(projectId)
+                    .map(p -> p.getLanguage())
+                    .orElse(null);
+        } catch (Exception e) {
+            System.err.println("Could not resolve language for project " + projectId + ": " + e.getMessage());
+            return null;
         }
     }
 

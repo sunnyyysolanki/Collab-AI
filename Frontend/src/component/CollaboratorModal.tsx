@@ -373,7 +373,7 @@ import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { IoMdRemoveCircleOutline } from 'react-icons/io';
 import { X, AlertCircle } from 'lucide-react';
-import { handleSuccess } from '../config/toastUtility';
+import { handleSuccess, handleError } from '../config/toastUtility';
 import { RootState } from '../App/store'; // Adjust the import path
 import { initializeSocket, sendMessage, receiveMessage } from '../config/socket'; // Adjust the import path
 
@@ -425,16 +425,21 @@ interface UserAccess {
     canWrite: boolean;
 }
 
+/**
+ * The handlers return a promise that rejects when the request fails, so this
+ * modal can wait for the server before announcing success. They used to be
+ * fire-and-forget, which reported "removed successfully" even on a 403.
+ */
 interface CollaboratorModalProps {
     collaborators: Collaborator[];
     allUsers: User[];
-    handleAddCollaborators: (selectedUsers: string[], accessLevel: string) => void;
-    handleRemoveCollaborator: (userId: string) => void;
-    handleUpdateCollaboratorAccess: (userId: string, accessLevel: string) => void;
+    handleAddCollaborators: (selectedUsers: string[], accessLevel: string) => void | Promise<void>;
+    handleRemoveCollaborator: (userId: string) => void | Promise<void>;
+    handleUpdateCollaboratorAccess: (userId: string, accessLevel: string) => void | Promise<void>;
     onClose: () => void;
     project: Project;
     userAccess: UserAccess;
-    handleToggleAdminOnlyEdit: (projectId: string, adminOnlyEdit: boolean) => void;
+    handleToggleAdminOnlyEdit: (projectId: string, adminOnlyEdit: boolean) => void | Promise<void>;
 }
 
 const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
@@ -468,75 +473,106 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
         }
     };
 
-    const handleRemoveClick = (e: React.MouseEvent, userId: string) => {
+    // Each action waits for the request to succeed before it broadcasts the
+    // socket event and toasts. A rejection means the parent already toasted
+    // the server's message, so there is nothing left to do here.
+    const [isBusy, setIsBusy] = useState(false);
+
+    const handleRemoveClick = async (e: React.MouseEvent, userId: string) => {
         e.stopPropagation();
-        handleRemoveCollaborator(userId);
+        setIsBusy(true);
+        try {
+            await handleRemoveCollaborator(userId);
 
-        // Emit event to notify all users
-        sendMessage('removeCollaborator', {
-            removedBy: user?.email,
-            userId
-        });
+            sendMessage('removeCollaborator', {
+                removedBy: user?.email,
+                userId
+            });
 
-        // Show success notification
-        const removedUserEmail = allUsers.find(u => u.id === userId)?.email;
-        handleSuccess(`Collaborator ${removedUserEmail} removed by ${user?.email}`);
+            const removedUserEmail = allUsers.find(u => u.id === userId)?.email;
+            handleSuccess(`Collaborator ${removedUserEmail} removed by ${user?.email}`);
+        } catch {
+            /* parent already surfaced the error */
+        } finally {
+            setIsBusy(false);
+        }
     };
 
-    const handleAccessLevelChange = (userId: string, newAccessLevel: string) => {
-        handleUpdateCollaboratorAccess(userId, newAccessLevel);
-        setExpandedUser(null);
+    const handleAccessLevelChange = async (userId: string, newAccessLevel: string) => {
+        setIsBusy(true);
+        try {
+            await handleUpdateCollaboratorAccess(userId, newAccessLevel);
+            setExpandedUser(null);
 
-        // Emit event to notify all users
-        sendMessage('updateAccessLevel', {
-            changedBy: user?.email,
-            userId,
-            newAccessLevel
-        });
+            sendMessage('updateAccessLevel', {
+                changedBy: user?.email,
+                userId,
+                newAccessLevel
+            });
 
-        // Show success notification
-        const changedUserEmail = allUsers.find(u => u.id === userId)?.email;
-        handleSuccess(`Access level changed to ${newAccessLevel} for ${changedUserEmail} by ${user?.email}`);
+            const changedUserEmail = allUsers.find(u => u.id === userId)?.email;
+            handleSuccess(`Access level changed to ${newAccessLevel} for ${changedUserEmail} by ${user?.email}`);
+        } catch {
+            /* parent already surfaced the error */
+        } finally {
+            setIsBusy(false);
+        }
     };
 
-    const handleAddCollaboratorsClick = () => {
-        handleAddCollaborators(selectedUsers, accessLevel);
-        setSelectedUsers([]);
+    const handleAddCollaboratorsClick = async () => {
+        // The backend rejects an empty users array (@NotEmpty); say so here
+        // rather than firing a request that can only fail.
+        if (selectedUsers.length === 0) {
+            handleError('Select at least one user to add as a collaborator.');
+            return;
+        }
 
-        // Emit event to notify all users
-        sendMessage('addCollaborator', {
-            addedBy: user?.email,
-            collaborators: selectedUsers.map(id => ({
-                id,
-                accessLevel
-            }))
-        });
-
-        // Construct the success message
-        const addedUsers = selectedUsers.map(id => ({
+        // Captured before the reset below so the message stays accurate.
+        const added = selectedUsers.map(id => ({
+            id,
             email: allUsers.find(u => u.id === id)?.email,
             accessLevel
-        })).filter(Boolean);
+        }));
 
-        const message = addedUsers.length > 4
-            ? `Collaborators added successfully by ${user?.email}: ${addedUsers.slice(0, 4).map(u => `${u.email} (${u.accessLevel})`).join(', ')} and +${addedUsers.length - 4} more`
-            : `Collaborators added successfully by ${user?.email}: ${addedUsers.map(u => `${u.email} (${u.accessLevel})`).join(', ')}`;
+        setIsBusy(true);
+        try {
+            await handleAddCollaborators(selectedUsers, accessLevel);
+            setSelectedUsers([]);
 
-        // Show success notification
-        handleSuccess(message);
+            sendMessage('addCollaborator', {
+                addedBy: user?.email,
+                collaborators: added.map(({ id }) => ({ id, accessLevel }))
+            });
+
+            const message = added.length > 4
+                ? `Collaborators added successfully by ${user?.email}: ${added.slice(0, 4).map(u => `${u.email} (${u.accessLevel})`).join(', ')} and +${added.length - 4} more`
+                : `Collaborators added successfully by ${user?.email}: ${added.map(u => `${u.email} (${u.accessLevel})`).join(', ')}`;
+
+            handleSuccess(message);
+        } catch {
+            /* parent already surfaced the error */
+        } finally {
+            setIsBusy(false);
+        }
     };
 
-    const handleToggleAdminOnlyEditChange = () => {
-        handleToggleAdminOnlyEdit(project.id, !project.adminOnlyEdit);
+    const handleToggleAdminOnlyEditChange = async () => {
+        const next = !project.adminOnlyEdit;
+        setIsBusy(true);
+        try {
+            await handleToggleAdminOnlyEdit(project.id, next);
 
-        // Emit event to notify all users
-        sendMessage('toggleAdminOnlyMode', {
-            toggledBy: user?.email,
-            adminOnlyEdit: !project.adminOnlyEdit
-        });
+            sendMessage('toggleAdminOnlyMode', {
+                toggledBy: user?.email,
+                adminOnlyEdit: next
+            });
 
-        // Show success notification
-        handleSuccess(`Admin Only mode ${!project.adminOnlyEdit ? 'enabled' : 'disabled'} by ${user?.email}`);
+            handleSuccess(`Admin Only mode ${next ? 'enabled' : 'disabled'} by ${user?.email}`);
+        } catch {
+            /* parent already surfaced the error */
+        } finally {
+            setIsBusy(false);
+        }
     };
 
     useEffect(() => {
@@ -612,7 +648,8 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                             id="adminOnlyEdit"
                             checked={project.adminOnlyEdit}
                             onChange={handleToggleAdminOnlyEditChange}
-                            className="w-4 h-4"
+                            disabled={isBusy}
+                            className="w-4 h-4 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <label htmlFor="adminOnlyEdit" className="text-sm font-medium text-gray-700">
                             Only admins can edit and add collaborators
@@ -670,7 +707,8 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                                         {isAdmin && collaborator.id !== creatorId && collaborator.id !== user?.id && (
                                             <button
                                                 onClick={(e) => handleRemoveClick(e, collaborator.id)}
-                                                className="text-red-600 hover:text-red-800 p-1 rounded"
+                                                disabled={isBusy}
+                                                className="text-red-600 hover:text-red-800 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                                                 aria-label={`Remove ${collaborator.email}`}
                                             >
                                                 <IoMdRemoveCircleOutline size={20} />
@@ -684,7 +722,8 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => handleAccessLevelChange(collaborator.id, 'readonly')}
-                                                    className={`px-3 py-1 text-sm rounded ${collaborator.accessLevel === 'readonly'
+                                                    disabled={isBusy}
+                                                    className={`px-3 py-1 text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed ${collaborator.accessLevel === 'readonly'
                                                         ? 'bg-gray-800 text-white'
                                                         : 'bg-gray-200 hover:bg-gray-300'
                                                         }`}
@@ -693,7 +732,8 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                                                 </button>
                                                 <button
                                                     onClick={() => handleAccessLevelChange(collaborator.id, 'readwrite')}
-                                                    className={`px-3 py-1 text-sm rounded ${collaborator.accessLevel === 'readwrite'
+                                                    disabled={isBusy}
+                                                    className={`px-3 py-1 text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed ${collaborator.accessLevel === 'readwrite'
                                                         ? 'bg-gray-800 text-white'
                                                         : 'bg-gray-200 hover:bg-gray-300'
                                                         }`}
@@ -702,7 +742,8 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                                                 </button>
                                                 <button
                                                     onClick={() => handleAccessLevelChange(collaborator.id, 'admin')}
-                                                    className={`px-3 py-1 text-sm rounded ${collaborator.accessLevel === 'admin'
+                                                    disabled={isBusy}
+                                                    className={`px-3 py-1 text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed ${collaborator.accessLevel === 'admin'
                                                         ? 'bg-gray-800 text-white'
                                                         : 'bg-gray-200 hover:bg-gray-300'
                                                         }`}
@@ -806,9 +847,9 @@ const CollaboratorModal: React.FC<CollaboratorModalProps> = ({
                         <button
                             className="px-4 py-2 bg-slate-950 text-white rounded hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed"
                             onClick={handleAddCollaboratorsClick}
-                            disabled={selectedUsers.length === 0 || availableUsers.length === 0}
+                            disabled={isBusy || selectedUsers.length === 0 || availableUsers.length === 0}
                         >
-                            Add Selected
+                            {isBusy ? 'Adding…' : 'Add Selected'}
                         </button>
                     )}
                 </div>

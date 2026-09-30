@@ -4,6 +4,7 @@ import axiosInstance from '../config/axios';
 import { useSelector } from 'react-redux';
 import { RootState } from '../App/store';
 import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { showApiError } from '../config/toastUtility';
 
 interface Project {
     id: string;
@@ -74,8 +75,8 @@ const JoinProject: React.FC = () => {
                         state: { project: response.data.project }
                     });
                 }, 3000);
-            } catch (error: any) {
-                setMessage(error.response?.data?.message || 'Failed to join project');
+            } catch (error) {
+                setMessage(showApiError(error, 'Failed to join project'));
                 setStatus('error');
             }
         };

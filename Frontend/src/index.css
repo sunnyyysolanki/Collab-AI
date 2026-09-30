@@ -1,3 +1,76 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Toast animations (component/ui/Toaster.tsx)
+   Plain CSS rather than tailwind.config keyframes so the toast stays
+   self-contained and works without a config change.
+--------------------------------------------------------------------------- */
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(1.5rem) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes toast-out {
+    from {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+        max-height: 12rem;
+        margin-bottom: 0;
+    }
+    to {
+        opacity: 0;
+        transform: translateX(1.5rem) scale(0.96);
+        max-height: 0;
+        margin-bottom: -0.75rem;
+    }
+}
+
+@keyframes toast-progress {
+    from {
+        width: 100%;
+    }
+    to {
+        width: 0%;
+    }
+}
+
+.toast-enter {
+    animation: toast-in 220ms cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+
+/* Duration must stay in sync with EXIT_MS in Toaster.tsx. */
+.toast-leave {
+    animation: toast-out 200ms cubic-bezier(0.06, 0.71, 0.55, 1) both;
+    pointer-events: none;
+}
+
+.toast-progress {
+    animation-name: toast-progress;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+}
+
+/* Hovering pauses the countdown bar; the store's timer pauses in step. */
+.toast-item:hover .toast-progress {
+    animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast-enter,
+    .toast-leave {
+        animation-duration: 1ms;
+    }
+    .toast-progress {
+        animation: none;
+        width: 100%;
+    }
+}

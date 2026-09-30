@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { X, Copy } from "lucide-react";
 import axiosInstance from "../config/axios";
+import { getErrorMessage, handleError, handleSuccess } from "../config/toastUtility";
 // import { useSelector } from "react-redux";
 // import { RootState } from "../App/store";
 
@@ -46,17 +47,27 @@ const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
             );
             setShareUrl(response.data.shareUrl);
             setExpiresAt(new Date(response.data.expiresAt));
+            handleSuccess("Share link generated.");
             setIsLoading(false);
-        } catch (err: any) {
-            setError(err.response?.data?.message || "Failed to generate share link");
+        } catch (err) {
+            // Reads the { errors: [{ msg }] } shape too, so validation
+            // failures (e.g. an out-of-range expiry) say what was wrong.
+            const message = getErrorMessage(err, "Failed to generate share link");
+            setError(message);
+            handleError(message);
             setIsLoading(false);
         }
     };
 
-    const copyToClipboard = () => {
-        navigator.clipboard.writeText(shareUrl);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 3000);
+    const copyToClipboard = async () => {
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 3000);
+        } catch {
+            // Clipboard access is blocked outside a secure context.
+            handleError("Couldn't copy automatically - select the link and copy it manually.");
+        }
     };
 
     // If user doesn't have at least write access, show error
@@ -121,10 +132,11 @@ const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
                         value={expirationDays}
                         onChange={(e) => setExpirationDays(parseInt(e.target.value))}
                     >
+                        {/* Capped at 30: ShareLinkRequest validates
+                            @Max(30), so a 90-day option could only ever 400. */}
                         <option value={1}>1 day</option>
                         <option value={7}>7 days</option>
                         <option value={30}>30 days</option>
-                        <option value={90}>90 days</option>
                     </select>
                 </div>
 

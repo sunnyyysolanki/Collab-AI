@@ -9,7 +9,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.util.Arrays;
 
 /**
- * Mirrors the Node CORS setup: multi-origin from FRONTEND_URL (comma-separated),
+ * CORS setup: multi-origin from FRONTEND_URL (comma-separated),
  * trailing slashes stripped, credentials enabled.
  */
 @Configuration

@@ -10,8 +10,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Ports user.service.ts: createUser, loginUser, getAllUsers.
- * BCryptPasswordEncoder is hash-compatible with Node's bcrypt ($2a/$2b).
+ * User account service: registration, login and listing users.
+ * Passwords are stored as BCrypt hashes, never in plain text.
  */
 @Service
 public class UserService {
@@ -36,7 +36,7 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    /** Returns [token, user] equivalent. */
+    /** Verifies the credentials and returns the issued JWT plus the user. */
     public LoginResult loginUser(String email, String password) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ApiException("User does not exist", 404));

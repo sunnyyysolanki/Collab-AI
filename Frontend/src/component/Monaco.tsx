@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import { WebContainer, WebContainerProcess } from "@webcontainer/api";
 import axiosInstance from "../config/axios";
+import { showApiError } from "../config/toastUtility";
 import { receiveMessage, sendMessage } from "../config/socket";
 import { getIcon } from "./Explorer";
 
@@ -394,8 +395,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   userAccess,
 }) => {
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
-  // All servers that reported ready (a MERN app has both a backend and a
-  // frontend, each on its own port/URL). Preview can switch between them.
+  // All servers that reported ready (a full-stack app has both a backend and
+  // a frontend, each on its own port/URL). Preview can switch between them.
   const [serverUrls, setServerUrls] = useState<{ port: number; url: string }[]>(
     []
   );
@@ -620,8 +621,8 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         fileTree: ft,
       });
     } catch (err) {
-      console.error("Error saving file tree:", err);
-      addLog("install", `❌ Error: Failed to save changes`);
+      const message = showApiError(err, "Your changes could not be saved.");
+      addLog("install", `❌ Error: ${message}`);
       setHasError(true);
     }
   };
@@ -640,7 +641,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
 
   // Find EVERY directory that holds a RUNNABLE app package.json (backend +
-  // frontend for a MERN monorepo). We recurse into subfolders FIRST: if a
+  // frontend for a full-stack monorepo). We recurse into subfolders FIRST: if a
   // folder has apps inside it (e.g. a monorepo root with client/ and server/),
   // we use those and skip the root package.json — otherwise a root package.json
   // with no "start" script would break Run ("Missing script: start"). Only a
@@ -761,6 +762,12 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     const languageMap: Record<string, number | null> = {
       c: 50,
       'cpp': 54,
+      // Aliases for the exact labels offered at project creation (Home.tsx).
+      // Without these, picking "C++"/"C#"/"Shell" made Run report the language
+      // as unsupported, because only the canonical names were mapped.
+      'c++': 54,
+      'c#': 51,
+      shell: 46,
       java: 62,
       python: 71,
       javascript: 63,
@@ -821,7 +828,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       await webContainer.mount(fileTree);
       logStatus("install", "✅ Files mounted");
 
-      // Find EVERY package.json (a MERN app has backend + frontend). Backend
+      // Find EVERY package.json (a monorepo has backend + frontend). Backend
       // dirs come first so the API is up before the frontend that calls it.
       const pkgDirs = findAllPackageJsonDirs(fileTree);
       if (pkgDirs.length === 0) {
